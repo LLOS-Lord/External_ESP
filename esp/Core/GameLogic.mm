@@ -21,7 +21,7 @@ uint64_t CameraMain(uint64_t matchGame) {
     if (!isVaildPtr(matchGame)) return 0;
     uint64_t CameraControllerManager = ReadAddr<uint64_t>(matchGame + 0xD8);
     if (!isVaildPtr(CameraControllerManager)) return 0;
-    // FIX: Offset mới từ +0x18 → +0x20
+    // FIX: offset mới +0x20 (cũ +0x18)
     uint64_t CameraMain = ReadAddr<uint64_t>(CameraControllerManager + 0x20);
     return CameraMain;
 }
@@ -34,7 +34,7 @@ uint64_t getMatch(uint64_t matchGame) {
 
 uint64_t getLocalPlayer(uint64_t match) {
     if (!isVaildPtr(match)) return 0;
-    // FIX: Offset mới từ +0x58 → +0xD8
+    // FIX: offset mới +0xD8 (cũ +0x58)
     uint64_t LocalPlayer = ReadAddr<uint64_t>(match + 0xD8);
     return LocalPlayer;
 }
@@ -42,20 +42,15 @@ uint64_t getLocalPlayer(uint64_t match) {
 uint64_t getHead(uint64_t player) {
     if (!isVaildPtr(player)) return 0;
     // FIX: Head field đã bị xóa. Dùng ITransformNode Array.
-    // Thử đọc Transform* duy nhất tại Player + 0x698 (OKOLMFJKGEC)
-    // Nếu không hợp lệ, brute-force array 0x630~0x6C8
-
+    // Thử Transform* duy nhất tại Player + 0x698 (OKOLMFJKGEC)
     uint64_t headTransform = ReadAddr<uint64_t>(player + 0x698);
     if (isVaildPtr(headTransform)) {
         return headTransform;
     }
-
-    // Brute-force: Tìm pointer hợp lệ trong array 20 phần tử
+    // Fallback: brute-force array 0x630~0x6C8 (20 pointers)
     for (int i = 0; i < 20; i++) {
         uint64_t ptr = ReadAddr<uint64_t>(player + 0x630 + i * 8);
         if (isVaildPtr(ptr)) {
-            // Trả về pointer đầu tiên hợp lệ
-            // TODO: Có thể cần so sánh Y position để xác định chính xác Head
             return ptr;
         }
     }
@@ -66,42 +61,34 @@ uint64_t getRightToeNode(uint64_t player) {
     if (!isVaildPtr(player)) return 0;
     // FIX: Toe field đã bị xóa. Dùng ITransformNode Array.
     // Brute-force tìm bone có Y thấp nhất trong array 0x630~0x6C8
-
     float minY = 999999.0f;
     uint64_t bestToe = 0;
-
     for (int i = 0; i < 20; i++) {
         uint64_t ptr = ReadAddr<uint64_t>(player + 0x630 + i * 8);
         if (!isVaildPtr(ptr)) continue;
-
         Vector3 pos = getPositionExt(ptr);
         if (pos.y < minY && pos.y > 0) {
             minY = pos.y;
             bestToe = ptr;
         }
     }
-
     return bestToe;
 }
 
 bool isLocalTeamMate(uint64_t localPlayer, uint64_t player) {
     if (!isVaildPtr(localPlayer) || !isVaildPtr(player)) return false;
-
-    // FIX: Offset mới từ +0x2D0 → +0x3A0, TeamID nằm tại struct + 0x8
+    // FIX: TeamID offset mới Player + 0x3A0 → struct + 0x8
     uint64_t localTeamStruct = ReadAddr<uint64_t>(localPlayer + 0x3A0);
     uint64_t playerTeamStruct = ReadAddr<uint64_t>(player + 0x3A0);
-
     if (!isVaildPtr(localTeamStruct) || !isVaildPtr(playerTeamStruct)) return false;
-
     uint8_t localTeamID = ReadAddr<uint8_t>(localTeamStruct + 0x8);
     uint8_t playerTeamID = ReadAddr<uint8_t>(playerTeamStruct + 0x8);
-
     return localTeamID == playerTeamID;
 }
 
 uint16_t GetDataUInt16(uint64_t player) {
     if (!isVaildPtr(player)) return 0;
-    // FIX: Offset mới từ +0x68 → +0x78
+    // FIX: offset mới +0x78 (cũ +0x68)
     uint64_t IPRIDataPool = ReadAddr<uint64_t>(player + 0x78);
     if (!isVaildPtr(IPRIDataPool)) return 0;
     uint16_t data = ReadAddr<uint16_t>(IPRIDataPool + 0x48);

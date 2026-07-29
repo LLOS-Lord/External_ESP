@@ -58,7 +58,7 @@ Vector3 getPositionExt(uint64_t transObj2) {
 }
 
 NSString *GetNickName(uint64_t PawnObject) {
-    // FIX: Offset mới từ +0x358 → +0x430
+    // FIX: offset mới +0x430 (cũ +0x358)
     uint64_t name = ReadAddr<uint64_t>(PawnObject + 0x430);
 
     UTF8 PlayerName[32] = "";
