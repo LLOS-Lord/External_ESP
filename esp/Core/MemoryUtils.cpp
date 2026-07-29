@@ -1,95 +1,173 @@
-#import "MemoryUtils.h"
-#import "Logger.h"
+#include "MemoryUtils.h"
 
-pid_t GetGameProcesspid(char* GameProcessName) {
-    size_t length = 0;
-    static const int name[] = {CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0};
-    int err = sysctl((int *)name, (sizeof(name) / sizeof(*name)) - 1, NULL, &length, NULL, 0);
+uint64_t Moudule_Base = 0;
 
-    if (err == -1) {
-        err = errno;
+bool isVaildPtr(uint64_t ptr) {
+    return (ptr > 0x100000000 && ptr < 0xFFFFFFFFFFFF);
+}
+
+int GetGameProcesspid(const char *name) {
+    int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0};
+    size_t size;
+
+    if (sysctl(mib, 4, NULL, &size, NULL, 0) < 0) {
+        return -1;
     }
 
-    ESPLog("[MEM] sysctl length=%zu err=%d", length, err);
+    struct kinfo_proc *process = NULL;
+    struct kinfo_proc *newprocess = NULL;
 
-    if (err == 0) {
-        struct kinfo_proc *procBuffer = (struct kinfo_proc *)malloc(length);
-        if (procBuffer == NULL) {
-            ESPLog("[MEM] malloc failed");
+    do {
+        size += size / 10;
+        newprocess = (struct kinfo_proc *)realloc(process, size);
+        if (!newprocess) {
+            if (process) free(process);
             return -1;
         }
-
-        err = sysctl((int *)name, (sizeof(name) / sizeof(*name)) - 1, procBuffer, &length, NULL, 0);
-        if (err == -1) {
-            err = errno;
-            free(procBuffer);
-            ESPLog("[MEM] sysctl second call failed err=%d", err);
+        process = newprocess;
+        if (sysctl(mib, 4, process, &size, NULL, 0) < 0) {
+            free(process);
             return -1;
         }
+    } while (size % sizeof(struct kinfo_proc) != 0);
 
-        int count = (int)length / sizeof(struct kinfo_proc);
-        ESPLog("[MEM] Total processes: %d", count);
+    int count = (int)(size / sizeof(struct kinfo_proc));
+    int pid = -1;
 
-        for (int i = 0; i < count; ++i) {
-            const char *procname = procBuffer[i].kp_proc.p_comm;
-            pid_t Processpid = procBuffer[i].kp_proc.p_pid;
-
-            if (strstr(procname, GameProcessName)) {
-                ESPLog("[MEM] FOUND process '%s' pid=%d", procname, Processpid);
-                free(procBuffer);
-                return Processpid;
-            }
+    for (int i = 0; i < count; i++) {
+        if (strcmp(process[i].kp_proc.p_comm, name) == 0) {
+            pid = process[i].kp_proc.p_pid;
+            break;
         }
-
-        ESPLog("[MEM] Process '%s' NOT FOUND", GameProcessName);
-        free(procBuffer);
     }
+
+    free(process);
+    return pid;
+}
+
+// FIX: Thử nhiều tên process phổ biến của Free Fire
+int GetGameProcesspid_Auto() {
+    const char *processNames[] = {
+        "freefireth",
+        "freefirethm",
+        "freefireth_ob",
+        "com.dts.freefireth",
+        "com.dts.freefirethm",
+        "FreeFire",
+        "FreeFireTh",
+        NULL
+    };
+
+    for (int i = 0; processNames[i] != NULL; i++) {
+        int pid = GetGameProcesspid(processNames[i]);
+        if (pid > 0) {
+            NSLog(@"[MEM] Found process '%s' with pid=%d", processNames[i], pid);
+            return pid;
+        }
+    }
+
+    // Nếu không tìm thấy, liệt kê tất cả process để debug
+    NSLog(@"[MEM] WARNING: No Free Fire process found. Listing all processes:");
+    ListAllProcesses();
 
     return -1;
 }
 
-vm_map_offset_t GetGameModule_Base(char* GameProcessName) {
-    vm_map_offset_t vmoffset = 0;
-    vm_map_size_t vmsize = 0;
-    uint32_t nesting_depth = 0;
-    struct vm_region_submap_info_64 vbr;
-    mach_msg_type_number_t vbrcount = 16;
+// Hàm debug: Liệt kê tất cả process
+void ListAllProcesses() {
+    int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0};
+    size_t size;
 
-    pid_t pid = GetGameProcesspid(GameProcessName);
-    if (pid == -1) {
-        ESPLog("[MEM] GetGameModule_Base: pid=-1");
+    if (sysctl(mib, 4, NULL, &size, NULL, 0) < 0) return;
+
+    struct kinfo_proc *process = (struct kinfo_proc *)malloc(size);
+    if (!process) return;
+
+    if (sysctl(mib, 4, process, &size, NULL, 0) < 0) {
+        free(process);
+        return;
+    }
+
+    int count = (int)(size / sizeof(struct kinfo_proc));
+    for (int i = 0; i < count; i++) {
+        NSLog(@"[MEM] Process[%d]: name=%s pid=%d", i, process[i].kp_proc.p_comm, process[i].kp_proc.p_pid);
+    }
+
+    free(process);
+}
+
+uint64_t GetGameModule_Base(int pid) {
+    if (pid < 0) {
+        NSLog(@"[MEM] GetGameModule_Base: pid=%d INVALID", pid);
         return 0;
     }
 
-    ESPLog("[MEM] Getting task for pid=%d", pid);
-    kern_return_t kret = task_for_pid(mach_task_self(), pid, &get_task);
-    ESPLog("[MEM] task_for_pid result=%d task=%u", kret, get_task);
-
-    if (get_task != MACH_PORT_NULL) {
-        kern_return_t kr = mach_vm_region_recurse(get_task, &vmoffset, &vmsize, &nesting_depth, (vm_region_recurse_info_t)&vbr, &vbrcount);
-        ESPLog("[MEM] mach_vm_region_recurse result=%d vmoffset=0x%llX vmsize=0x%llX", kr, vmoffset, vmsize);
-        if (kr == KERN_SUCCESS) {
-            ESPLog("[MEM] Module Base = 0x%llX", vmoffset);
-            return vmoffset;
-        }
+    task_t task;
+    kern_return_t kr = task_for_pid(mach_task_self(), pid, &task);
+    if (kr != KERN_SUCCESS) {
+        NSLog(@"[MEM] task_for_pid failed: %s", mach_error_string(kr));
+        return 0;
     }
 
-    ESPLog("[MEM] GetGameModule_Base FAILED");
+    vm_address_t address = 0;
+    vm_size_t size = 0;
+    uint32_t depth = 1;
+
+    while (1) {
+        struct vm_region_submap_info_64 info;
+        mach_msg_type_number_t count = VM_REGION_SUBMAP_INFO_COUNT_64;
+
+        kr = vm_region_recurse_64(task, &address, &size, &depth, (vm_region_info_64_t)&info, &count);
+        if (kr != KERN_SUCCESS) break;
+
+        if (info.protection & VM_PROT_EXECUTE) {
+            // Found executable region - likely the main module
+            // Tìm base address thực sự bằng cách đọc header
+            uint64_t base = address;
+
+            // Kiểm tra Mach-O header
+            uint32_t magic = 0;
+            vm_size_t read_size = 0;
+            vm_read_overwrite(task, address, sizeof(uint32_t), (vm_address_t)&magic, &read_size);
+
+            if (magic == MH_MAGIC_64 || magic == MH_CIGAM_64 || magic == FAT_MAGIC || magic == FAT_CIGAM) {
+                NSLog(@"[MEM] Found module base: 0x%llX", base);
+                return base;
+            }
+        }
+
+        address += size;
+    }
+
+    NSLog(@"[MEM] Could not find module base");
     return 0;
 }
 
-bool _read(long addr, void *buffer, int len)
-{
-    if (!isVaildPtr(addr)) {
-        ESPLog("[MEM] _read INVALID addr=0x%lX", addr);
+uint64_t GetModuleSlide(int pid) {
+    // Tính slide từ base address
+    // Thường dùng khi ASLR được bật
+    uint64_t base = GetGameModule_Base(pid);
+    if (base == 0) return 0;
+
+    // Đọc MH header để tìm preferred load address
+    // Slide = Base - PreferredAddress
+    // Đơn giản hóa: trả về base (coi như slide = base nếu preferred = 0)
+    return base;
+}
+
+bool _read(uint64_t address, void *buffer, size_t size) {
+    if (!isVaildPtr(address)) {
+        // NSLog(@"[MEM] _read INVALID addr=0x%llX", address);
         return false;
     }
-    vm_size_t size = 0;
-    kern_return_t error = vm_read_overwrite(get_task, (vm_address_t)addr, len, (vm_address_t)buffer, &size);
-    if(error != KERN_SUCCESS || size != len)
-    {
-        ESPLog("[MEM] _read FAILED addr=0x%lX len=%d err=%d size=%zu", addr, len, error, size);
+
+    vm_size_t read_size = 0;
+    kern_return_t kr = vm_read_overwrite(mach_task_self(), address, size, (vm_address_t)buffer, &read_size);
+
+    if (kr != KERN_SUCCESS || read_size != size) {
+        // NSLog(@"[MEM] _read FAILED addr=0x%llX kr=%d", address, kr);
         return false;
     }
+
     return true;
 }

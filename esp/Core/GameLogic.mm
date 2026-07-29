@@ -1,119 +1,119 @@
 #import "GameLogic.h"
-#import "Logger.h"
 
-#pragma mark - Function Game
+#pragma mark - Function
 
-uint64_t getMatchGame(uint64_t Moudule_Base) {
-    ESPLog("[GL] getMatchGame base=0x%llX", Moudule_Base);
-
-    uint64_t GameFacade_TypeInfo = ReadAddr<uint64_t>(Moudule_Base + 0x9985B70);
-    ESPLog("[GL] GameFacade_TypeInfo = 0x%llX", GameFacade_TypeInfo);
-
+uint64_t getMatchGame(uint64_t base) {
+    uint64_t GameFacade_TypeInfo = ReadAddr<uint64_t>(base + 0x9985B70);
     if (!isVaildPtr(GameFacade_TypeInfo)) {
-        ESPLog("[GL] ERROR: GameFacade_TypeInfo INVALID");
+        NSLog(@"[GL] ERROR: GameFacade_TypeInfo INVALID");
         return 0;
     }
-
-    uint64_t GameFacade_Static = ReadAddr<uint64_t>(GameFacade_TypeInfo + 0xB8);
-    ESPLog("[GL] GameFacade_Static = 0x%llX", GameFacade_Static);
-
-    uint64_t matchGame = ReadAddr<uint64_t>(GameFacade_Static + 0x0);
-    ESPLog("[GL] matchGame = 0x%llX", matchGame);
+    uint64_t gameFacade = ReadAddr<uint64_t>(GameFacade_TypeInfo + 0xB8);
+    if (!isVaildPtr(gameFacade)) {
+        NSLog(@"[GL] ERROR: gameFacade INVALID");
+        return 0;
+    }
+    uint64_t matchGame = ReadAddr<uint64_t>(gameFacade + 0x90);
     return matchGame;
 }
 
-uint64_t getMatch(uint64_t matchgame) {
-    uint64_t match = ReadAddr<uint64_t>(matchgame + 0x90);
-    ESPLog("[GL] getMatch = 0x%llX", match);
-    return match;
+uint64_t CameraMain(uint64_t matchGame) {
+    if (!isVaildPtr(matchGame)) return 0;
+    uint64_t CameraControllerManager = ReadAddr<uint64_t>(matchGame + 0xD8);
+    if (!isVaildPtr(CameraControllerManager)) return 0;
+    // FIX: Offset mới từ +0x18 → +0x20
+    uint64_t CameraMain = ReadAddr<uint64_t>(CameraControllerManager + 0x20);
+    return CameraMain;
 }
 
-uint64_t CameraMain(uint64_t matchgame) {
-    uint64_t CameraControllerManager = ReadAddr<uint64_t>(matchgame + 0xD8);
-    ESPLog("[GL] CameraControllerManager = 0x%llX", CameraControllerManager);
-
-    uint64_t camera = ReadAddr<uint64_t>(CameraControllerManager + 0x20);
-    ESPLog("[GL] CameraMain = 0x%llX", camera);
-    return camera;
-}
-
-float* GetViewMatrix(uint64_t cameraMain) {
-    uint64_t v1 = ReadAddr<uint64_t>(cameraMain + 0x10);
-    ESPLog("[GL] ViewMatrix v1 = 0x%llX", v1);
-
-    static float matrix[16];
-    for (int i = 0; i < 16; i++) {
-        matrix[i] = ReadAddr<float>(v1 + 0xD8 + i * 0x4);
-    }
-    ESPLog("[GL] ViewMatrix diag: [%f, %f, %f, %f]", matrix[0], matrix[5], matrix[10], matrix[15]);
-    return matrix;
-}
-
-uint64_t getTransNode(uint64_t BodyPart) {
-    return ReadAddr<uint64_t>(BodyPart + 0x10);
-}
-
-uint64_t getHead(uint64_t player) {
-    uint64_t head = ReadAddr<uint64_t>(player + 0x698);
-    ESPLog("[GL] Head at +0x698 = 0x%llX", head);
-
-    if (!isVaildPtr(head)) {
-        uint64_t itn = ReadAddr<uint64_t>(player + 0x630);
-        head = getTransNode(itn);
-        ESPLog("[GL] Head fallback +0x630 -> 0x%llX", head);
-    }
-    return head;
-}
-
-uint64_t getRightToeNode(uint64_t player) {
-    uint64_t toeITN = ReadAddr<uint64_t>(player + 0x630);
-    uint64_t toe = getTransNode(toeITN);
-    ESPLog("[GL] Toe +0x630 -> 0x%llX", toe);
-
-    if (!isVaildPtr(toe)) {
-        toeITN = ReadAddr<uint64_t>(player + 0x638);
-        toe = getTransNode(toeITN);
-        ESPLog("[GL] Toe fallback +0x638 -> 0x%llX", toe);
-    }
-    return toe;
+uint64_t getMatch(uint64_t matchGame) {
+    if (!isVaildPtr(matchGame)) return 0;
+    uint64_t Match = ReadAddr<uint64_t>(matchGame + 0x90);
+    return Match;
 }
 
 uint64_t getLocalPlayer(uint64_t match) {
-    uint64_t local = ReadAddr<uint64_t>(match + 0xD8);
-    ESPLog("[GL] LocalPlayer = 0x%llX", local);
-    return local;
+    if (!isVaildPtr(match)) return 0;
+    // FIX: Offset mới từ +0x58 → +0xD8
+    uint64_t LocalPlayer = ReadAddr<uint64_t>(match + 0xD8);
+    return LocalPlayer;
 }
 
-bool isLocalTeamMate(uint64_t localPlayer, uint64_t Player) {
-    COW_GamePlay_PlayerID_o myPlayerID = ReadAddr<COW_GamePlay_PlayerID_o>(localPlayer + 0x3A8);
-    COW_GamePlay_PlayerID_o PlayerID = ReadAddr<COW_GamePlay_PlayerID_o>(Player + 0x3A8);
+uint64_t getHead(uint64_t player) {
+    if (!isVaildPtr(player)) return 0;
+    // FIX: Head field đã bị xóa. Dùng ITransformNode Array.
+    // Thử đọc Transform* duy nhất tại Player + 0x698 (OKOLMFJKGEC)
+    // Nếu không hợp lệ, brute-force array 0x630~0x6C8
 
-    int myTeamID = myPlayerID.m_TeamID;
-    int TeamID = PlayerID.m_TeamID;
-
-    ESPLog("[GL] Team: my=%d vs enemy=%d -> %s", myTeamID, TeamID, (myTeamID==TeamID)?"TEAMMATE":"ENEMY");
-    return myTeamID == TeamID;
-}
-
-int GetDataUInt16(uint64_t player, int varID) {
-    uint64_t IPRIDataPool = ReadAddr<uint64_t>(player + 0x78);
-    ESPLog("[GL] IPRIDataPool = 0x%llX", IPRIDataPool);
-
-    if (isVaildPtr(IPRIDataPool)) {
-        uint64_t v2 = ReadAddr<uint64_t>(IPRIDataPool + 0x10);
-        uint64_t v4 = ReadAddr<uint64_t>(v2 + 0x8 * varID + 0x20);
-        int v6 = ReadAddr<int>(v4 + 0x18);
-        ESPLog("[GL] HP varID=%d -> %d", varID, v6);
-        return v6;
+    uint64_t headTransform = ReadAddr<uint64_t>(player + 0x698);
+    if (isVaildPtr(headTransform)) {
+        return headTransform;
     }
-    ESPLog("[GL] IPRIDataPool INVALID");
+
+    // Brute-force: Tìm pointer hợp lệ trong array 20 phần tử
+    for (int i = 0; i < 20; i++) {
+        uint64_t ptr = ReadAddr<uint64_t>(player + 0x630 + i * 8);
+        if (isVaildPtr(ptr)) {
+            // Trả về pointer đầu tiên hợp lệ
+            // TODO: Có thể cần so sánh Y position để xác định chính xác Head
+            return ptr;
+        }
+    }
     return 0;
 }
 
-int get_CurHP(uint64_t Player) {
-    return GetDataUInt16(Player, 0);
+uint64_t getRightToeNode(uint64_t player) {
+    if (!isVaildPtr(player)) return 0;
+    // FIX: Toe field đã bị xóa. Dùng ITransformNode Array.
+    // Brute-force tìm bone có Y thấp nhất trong array 0x630~0x6C8
+
+    float minY = 999999.0f;
+    uint64_t bestToe = 0;
+
+    for (int i = 0; i < 20; i++) {
+        uint64_t ptr = ReadAddr<uint64_t>(player + 0x630 + i * 8);
+        if (!isVaildPtr(ptr)) continue;
+
+        Vector3 pos = getPositionExt(ptr);
+        if (pos.y < minY && pos.y > 0) {
+            minY = pos.y;
+            bestToe = ptr;
+        }
+    }
+
+    return bestToe;
 }
 
-int get_MaxHP(uint64_t Player) {
-    return GetDataUInt16(Player, 1);
+bool isLocalTeamMate(uint64_t localPlayer, uint64_t player) {
+    if (!isVaildPtr(localPlayer) || !isVaildPtr(player)) return false;
+
+    // FIX: Offset mới từ +0x2D0 → +0x3A0, TeamID nằm tại struct + 0x8
+    uint64_t localTeamStruct = ReadAddr<uint64_t>(localPlayer + 0x3A0);
+    uint64_t playerTeamStruct = ReadAddr<uint64_t>(player + 0x3A0);
+
+    if (!isVaildPtr(localTeamStruct) || !isVaildPtr(playerTeamStruct)) return false;
+
+    uint8_t localTeamID = ReadAddr<uint8_t>(localTeamStruct + 0x8);
+    uint8_t playerTeamID = ReadAddr<uint8_t>(playerTeamStruct + 0x8);
+
+    return localTeamID == playerTeamID;
+}
+
+uint16_t GetDataUInt16(uint64_t player) {
+    if (!isVaildPtr(player)) return 0;
+    // FIX: Offset mới từ +0x68 → +0x78
+    uint64_t IPRIDataPool = ReadAddr<uint64_t>(player + 0x78);
+    if (!isVaildPtr(IPRIDataPool)) return 0;
+    uint16_t data = ReadAddr<uint16_t>(IPRIDataPool + 0x48);
+    return data;
+}
+
+int get_CurHP(uint64_t player) {
+    uint16_t data = GetDataUInt16(player);
+    return (data >> 8) & 0xFF;
+}
+
+int get_MaxHP(uint64_t player) {
+    uint16_t data = GetDataUInt16(player);
+    return data & 0xFF;
 }

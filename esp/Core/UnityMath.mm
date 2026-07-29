@@ -1,5 +1,4 @@
 #import "UnityMath.h"
-#import "Logger.h"
 
 #pragma mark - Function Unity
 
@@ -12,26 +11,14 @@ Vector3 WorldToScreen(Vector3 obj, float *matrix, float screenX, float screenY) 
     float y = (screenY / 2) - (matrix[1] * obj.x + matrix[5] * obj.y + matrix[9] * obj.z + matrix[13]) / w * (screenY / 2);
     screen.x = x;
     screen.y = y;
-
-    ESPLog("[MATH] W2S in=(%.1f,%.1f,%.1f) out=(%.1f,%.1f) w=%f", obj.x, obj.y, obj.z, x, y, w);
     return screen;
 }
 
 Vector3 getPositionExt(uint64_t transObj2) {
-    ESPLog("[MATH] getPositionExt transObj2=0x%llX", transObj2);
-
     uint64_t transObj = ReadAddr<uint64_t>(transObj2 + 0x10);
-    ESPLog("[MATH] transObj = 0x%llX", transObj);
-
-    if (!isVaildPtr(transObj)) {
-        ESPLog("[MATH] transObj INVALID");
-        return Vector3(0,0,0);
-    }
 
     uint64_t matrix = ReadAddr<uint64_t>(transObj + 0x38);
     uint64_t index = ReadAddr<uint64_t>(transObj + 0x40);
-
-    ESPLog("[MATH] matrix=0x%llX index=0x%llX", matrix, index);
 
     uint64_t matrix_list = ReadAddr<uint64_t>(matrix + 0x18);
     uint64_t matrix_indices = ReadAddr<uint64_t>(matrix + 0x20);
@@ -39,11 +26,7 @@ Vector3 getPositionExt(uint64_t transObj2) {
     Vector3 result = ReadAddr<Vector3>(matrix_list + sizeof(TMatrix) * index);
     int transformIndex = ReadAddr<int>(matrix_indices + sizeof(int) * index);
 
-    ESPLog("[MATH] initial pos=(%.2f,%.2f,%.2f) transformIndex=%d", result.x, result.y, result.z, transformIndex);
-
-    int depth = 0;
     while (transformIndex >= 0) {
-        depth++;
         TMatrix tMatrix = ReadAddr<TMatrix>(matrix_list + sizeof(TMatrix) * transformIndex);
 
         float rotX = tMatrix.rotation.x;
@@ -71,23 +54,18 @@ Vector3 getPositionExt(uint64_t transObj2) {
         transformIndex = ReadAddr<int>(matrix_indices + sizeof(int) * transformIndex);
     }
 
-    ESPLog("[MATH] final pos=(%.2f,%.2f,%.2f) depth=%d", result.x, result.y, result.z, depth);
     return result;
 }
 
 NSString *GetNickName(uint64_t PawnObject) {
+    // FIX: Offset mới từ +0x358 → +0x430
     uint64_t name = ReadAddr<uint64_t>(PawnObject + 0x430);
-    ESPLog("[MATH] NickName ptr at +0x430 = 0x%llX", name);
 
     UTF8 PlayerName[32] = "";
     UTF16 buf16[16] = {0};
 
-    bool ok = _read(name + 0x14, buf16, 28);
-    ESPLog("[MATH] _read name+0x14 result=%s", ok?"OK":"FAIL");
-
+    _read(name + 0x14, buf16, 28);
     Utf16_To_Utf8(buf16, PlayerName, 28, strictConversion);
 
-    NSString* result = [NSString stringWithUTF8String:(const char *)PlayerName];
-    ESPLog("[MATH] NickName = '%s'", [result UTF8String]);
-    return result;
+    return [NSString stringWithUTF8String:(const char *)PlayerName];
 }
