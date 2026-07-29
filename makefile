@@ -23,6 +23,7 @@ $(APPLICATION_NAME)_CFLAGS += -fobjc-arc -Wno-deprecated-declarations -Wno-unuse
 $(APPLICATION_NAME)_CFLAGS += -Iheaders
 $(APPLICATION_NAME)_CFLAGS += -Isources
 $(APPLICATION_NAME)_CFLAGS += -Isources/KIF
+$(APPLICATION_NAME)_CFLAGS += -Iesp/Core
 $(APPLICATION_NAME)_CFLAGS += -DNOTIFY_DESTROY_HUD="\"dev.metaware.external.hud.destroy\""
 $(APPLICATION_NAME)_CFLAGS += -DPID_PATH="@\"/var/mobile/Library/Caches/dev.metaware.external.pid\""
 $(APPLICATION_NAME)_CCFLAGS += -std=c++17
