@@ -1,0 +1,76 @@
+name: Build TrollStore IPA
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Homebrew
+      uses: Homebrew/actions/setup-homebrew@master
+
+    - name: Install ldid
+      run: |
+        echo "[*] Installing ldid..."
+        export HOMEBREW_NO_REQUIRE_TAP_TRUST=1
+        brew install ldid
+        echo "[*] ldid installed at: $(which ldid)"
+        ldid -v || true
+
+    - name: Setup Theos
+      run: |
+        echo "[*] Cloning Theos..."
+        git clone --recursive https://github.com/theos/theos.git $THEOS
+        echo "THEOS=$THEOS" >> $GITHUB_ENV
+      env:
+        THEOS: ${{ github.workspace }}/theos
+
+    - name: Setup iOS SDK
+      run: |
+        echo "[*] Downloading iOS SDK..."
+        cd $THEOS/sdks
+        curl -LO https://github.com/theos/sdks/archive/master.zip
+        unzip -q master.zip
+        mv sdks-master/*.sdk . 2>/dev/null || true
+        rm -rf master.zip sdks-master
+        echo "[*] Available SDKs:"
+        ls -la *.sdk 2>/dev/null || echo "No SDKs found"
+      env:
+        THEOS: ${{ github.workspace }}/theos
+
+    - name: Select Xcode Version
+      run: |
+        sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+        xcodebuild -version
+
+    - name: Build Package
+      run: |
+        echo "[*] Building with Theos..."
+        export THEOS=${{ github.workspace }}/theos
+        export PATH=$THEOS/bin:$PATH
+        make clean
+        make package
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: TrollSpeed-IPA
+        path: packages/*.tipa
+
+    - name: Upload Logs (on failure)
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-logs
+        path: |
+          .theos/build.log
+          .theos/obj/debug/**/*.log
