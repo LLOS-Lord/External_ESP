@@ -16,3 +16,6 @@
 extern NSMutableArray<PlayerData *> *g_playerList;
 extern float screenWidth;
 extern float screenHeight;
+extern float g_cameraFov;
+extern Vector3 g_cameraPos;
+extern float g_matrix[16];

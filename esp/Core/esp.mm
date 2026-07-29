@@ -110,15 +110,15 @@ void update_data() {
         float boxWidth = boxHeight * 0.6f;
 
         PlayerData *data = [[PlayerData alloc] init];
-        data->screenHead = screenHead;
-        data->screenToe = screenToe;
-        data->boxHeight = boxHeight;
-        data->boxWidth = boxWidth;
-        data->curHP = curHP;
-        data->maxHP = maxHP;
-        data->distance = distance;
-        data->isTeammate = isTeammate;
-        data->nickName = nickName;
+        data.screenHead = screenHead;
+        data.screenToe = screenToe;
+        data.boxHeight = boxHeight;
+        data.boxWidth = boxWidth;
+        data.curHP = curHP;
+        data.maxHP = maxHP;
+        data.distance = distance;
+        data.isTeammate = isTeammate;
+        data.nickName = nickName;
 
         [g_playerList addObject:data];
     }
