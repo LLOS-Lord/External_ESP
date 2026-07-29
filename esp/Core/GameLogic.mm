@@ -1,5 +1,17 @@
 #import "GameLogic.h"
 
+float* GetViewMatrix(uint64_t cameraMain) {
+    if (!isVaildPtr(cameraMain)) return nullptr;
+    uint64_t matrix = ReadAddr<uint64_t>(cameraMain + 0x30);
+    if (!isVaildPtr(matrix)) return nullptr;
+    uint64_t matrix2 = ReadAddr<uint64_t>(matrix + 0x18);
+    if (!isVaildPtr(matrix2)) return nullptr;
+    static float matrixV[16];
+    _read(matrix2 + 0x10, matrixV, sizeof(float) * 16);
+    return matrixV;
+}
+
+
 #pragma mark - Function
 
 uint64_t getMatchGame(uint64_t base) {

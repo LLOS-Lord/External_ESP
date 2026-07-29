@@ -1,6 +1,8 @@
 #import "MemoryUtils.h"
 #include <cerrno>
 
+task_t get_task = MACH_PORT_NULL;
+
 pid_t GetGameProcesspid(char* GameProcessName) {
     size_t length = 0;
     static const int name[] = {CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0};
