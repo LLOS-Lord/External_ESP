@@ -28,7 +28,7 @@ uint64_t Moudule_Base = -1;
 
         self.displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(updateBoxes)];
         [self.displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
-        
+
         self.displayLinkDATA = [CADisplayLink displayLinkWithTarget:self selector:@selector(update_data)];
         [self.displayLinkDATA addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
     }
@@ -52,7 +52,7 @@ uint64_t Moudule_Base = -1;
 - (void)updateBoxes {
     if (!self.window) return;
     NSUInteger count = self.boxesData.count;
-    
+
     if (count == 0)
     {
         for (CALayer *layer in self.layers)
@@ -62,7 +62,7 @@ uint64_t Moudule_Base = -1;
         [self.layers removeAllObjects];
         return;
     }
-    
+
     while (self.layers.count < count)
     {
         CALayer *layer = [CALayer layer];
@@ -82,7 +82,7 @@ uint64_t Moudule_Base = -1;
             ESPBox box;
             [self.boxesData[i] getValue:&box];
             layer.hidden = NO;
-            
+
             [CATransaction begin];
             [CATransaction setDisableActions:YES];
             layer.frame = CGRectMake(box.pos.x, box.pos.y, box.width, box.height);
@@ -106,7 +106,7 @@ uint64_t Moudule_Base = -1;
 {
     CFTimeInterval t = CACurrentMediaTime();
     CGSize size = self.bounds.size;
-    
+
     const NSInteger boxCount = 10;
     const CGFloat baseWidth = 60.0;
     const CGFloat baseHeight = 120.0;
@@ -123,16 +123,20 @@ uint64_t Moudule_Base = -1;
     uint64_t match = getMatch(matchGame);
     if (!isVaildPtr(match)) return;
 
+    // PATCHED: Local Player offset changed Match + 0x58 -> Match + 0xD8
     uint64_t myPawnObject = getLocalPlayer(match);
     if (!isVaildPtr(myPawnObject)) return;
-    
+
+    // NOTE: mainCameraTransform offset +0x2B0 not confirmed in new dump.
+    // If ESP drifts, verify this offset with Cheat Engine.
     uint64_t mainCameraTransform = ReadAddr<uint64_t>(myPawnObject + 0x2B0);
     Vector3 myLocation = getPositionExt(mainCameraTransform);
-    
-    uint64_t player = ReadAddr<uint64_t>(match + 0xC8);
+
+    // PATCHED: Player List offset changed Match + 0xC8 -> Match + 0x158
+    uint64_t player = ReadAddr<uint64_t>(match + 0x158);
     uint64_t tValue = ReadAddr<uint64_t>(player + 0x28);
     int coutValue = ReadAddr<int>(tValue + 0x18);
-    
+
     float *matrix = GetViewMatrix(camera);
 
     for (int i = 0; i < coutValue; i++) {
@@ -141,24 +145,27 @@ uint64_t Moudule_Base = -1;
 
         bool isLocalTeam = isLocalTeamMate(myPawnObject, PawnObject);
         if (isLocalTeam) continue;
-        
+
         NSString *Name = GetNickName(PawnObject);
         if (Name.length == 0) continue;
 
         int CurHP = get_CurHP(PawnObject);
         int MaxHP = get_MaxHP(PawnObject);
 
+        // PATCHED: Head/Toe fields removed. Using guessed offsets from ITransformNode array.
+        // Head: +0x698 (OKOLMFJKGEC - only Transform* in array)
+        // Toe: +0x630 (first ITransformNode - GUESS, may need adjustment)
         Vector3 HeadLocation     = getPositionExt(getHead(PawnObject));
         HeadLocation.y           += 0.2f;
 
         Vector3 RightToePos      = getPositionExt(getRightToeNode(PawnObject));
-        
+
         Vector3 w2sHeadLocation  = WorldToScreen(HeadLocation, matrix, sWidth, sHeight);
         Vector3 w2sRightToePos   = WorldToScreen(RightToePos, matrix, sWidth, sHeight);
-        
+
         float dis = Vector3::Distance(myLocation, HeadLocation);
         if (dis > 220.0f) continue;
-        
+
         countObject++;
 
         float boxHeight = abs(w2sHeadLocation.y - w2sRightToePos.y);
@@ -172,13 +179,13 @@ uint64_t Moudule_Base = -1;
         espBox.pos.y = y;
         espBox.width = boxWidth;
         espBox.height = boxHeight;
-        
+
         NSValue *val = [NSValue valueWithBytes:&espBox objCType:@encode(ESPBox)];
         [boxesMutable addObject:val];
     }
 
     NSLog(@"[Flork] Count: %d", countObject);
-    
+
     self.boxes = boxesMutable;
     [self setNeedsDisplay];
 }
