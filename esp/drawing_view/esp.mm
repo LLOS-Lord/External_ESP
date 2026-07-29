@@ -24,6 +24,7 @@ uint64_t Moudule_Base = -1;
         static dispatch_once_t onceToken;
         dispatch_once(&onceToken, ^{
             Moudule_Base = (uint64_t)GetGameModule_Base((char*)"freefireth");
+            NSLog(@"[DEBUG] Module Base = 0x%llX", Moudule_Base);
         });
 
         self.displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(updateBoxes)];
@@ -55,10 +56,7 @@ uint64_t Moudule_Base = -1;
 
     if (count == 0)
     {
-        for (CALayer *layer in self.layers)
-        {
-            [layer removeFromSuperlayer];
-        }
+        for (CALayer *layer in self.layers) { [layer removeFromSuperlayer]; }
         [self.layers removeAllObjects];
         return;
     }
@@ -76,18 +74,15 @@ uint64_t Moudule_Base = -1;
     for (NSUInteger i = 0; i < self.layers.count; i++)
     {
         CALayer *layer = self.layers[i];
-
         if (i < count)
         {
             ESPBox box;
             [self.boxesData[i] getValue:&box];
             layer.hidden = NO;
-
             [CATransaction begin];
             [CATransaction setDisableActions:YES];
             layer.frame = CGRectMake(box.pos.x, box.pos.y, box.width, box.height);
             [CATransaction commit];
-
         } else {
             layer.hidden = YES;
         }
@@ -104,67 +99,131 @@ uint64_t Moudule_Base = -1;
 
 - (void)update_data
 {
-    CFTimeInterval t = CACurrentMediaTime();
-    CGSize size = self.bounds.size;
-
-    const NSInteger boxCount = 10;
-    const CGFloat baseWidth = 60.0;
-    const CGFloat baseHeight = 120.0;
-
-    NSMutableArray<NSValue *> *boxesMutable = [NSMutableArray arrayWithCapacity:boxCount];
-    int countObject = 0;
-
-    if (Moudule_Base == -1) return;
+    if (Moudule_Base == -1) {
+        NSLog(@"[DEBUG] Module_Base = -1, aborting");
+        return;
+    }
 
     uint64_t matchGame = getMatchGame(Moudule_Base);
+    if (!isVaildPtr(matchGame)) {
+        NSLog(@"[DEBUG] matchGame INVALID, aborting");
+        return;
+    }
+
     uint64_t camera = CameraMain(matchGame);
-    if (!isVaildPtr(camera)) return;
+    if (!isVaildPtr(camera)) {
+        NSLog(@"[DEBUG] Camera INVALID, aborting");
+        return;
+    }
 
     uint64_t match = getMatch(matchGame);
-    if (!isVaildPtr(match)) return;
+    if (!isVaildPtr(match)) {
+        NSLog(@"[DEBUG] match INVALID, aborting");
+        return;
+    }
 
-    // PATCHED: Local Player offset changed Match + 0x58 -> Match + 0xD8
     uint64_t myPawnObject = getLocalPlayer(match);
-    if (!isVaildPtr(myPawnObject)) return;
+    if (!isVaildPtr(myPawnObject)) {
+        NSLog(@"[DEBUG] LocalPlayer INVALID, aborting");
+        return;
+    }
 
-    // NOTE: mainCameraTransform offset +0x2B0 not confirmed in new dump.
-    // If ESP drifts, verify this offset with Cheat Engine.
     uint64_t mainCameraTransform = ReadAddr<uint64_t>(myPawnObject + 0x2B0);
     Vector3 myLocation = getPositionExt(mainCameraTransform);
+    NSLog(@"[DEBUG] MyLocation = (%f, %f, %f)", myLocation.x, myLocation.y, myLocation.z);
 
-    // PATCHED: Player List offset changed Match + 0xC8 -> Match + 0x158
+    // PATCHED: Player List offset Match + 0xC8 -> Match + 0x158
     uint64_t player = ReadAddr<uint64_t>(match + 0x158);
+    NSLog(@"[DEBUG] Player list ptr = 0x%llX", player);
+
+    if (!isVaildPtr(player)) {
+        NSLog(@"[DEBUG] Player list INVALID, trying old offset +0xC8");
+        player = ReadAddr<uint64_t>(match + 0xC8);
+        NSLog(@"[DEBUG] Fallback Player list = 0x%llX", player);
+        if (!isVaildPtr(player)) {
+            NSLog(@"[DEBUG] Both offsets failed, aborting");
+            return;
+        }
+    }
+
     uint64_t tValue = ReadAddr<uint64_t>(player + 0x28);
+    NSLog(@"[DEBUG] tValue = 0x%llX", tValue);
+
+    if (!isVaildPtr(tValue)) {
+        NSLog(@"[DEBUG] tValue INVALID, aborting");
+        return;
+    }
+
     int coutValue = ReadAddr<int>(tValue + 0x18);
+    NSLog(@"[DEBUG] Player count = %d", coutValue);
+
+    if (coutValue <= 0 || coutValue > 100) {
+        NSLog(@"[DEBUG] Player count suspicious (%d), aborting", coutValue);
+        return;
+    }
 
     float *matrix = GetViewMatrix(camera);
 
+    NSMutableArray<NSValue *> *boxesMutable = [NSMutableArray array];
+    int countObject = 0;
+
     for (int i = 0; i < coutValue; i++) {
         uint64_t PawnObject = ReadAddr<uint64_t>(tValue + 0x20 + 8 * i);
-        if (!isVaildPtr(PawnObject)) continue;
+        NSLog(@"[DEBUG] Player[%d] = 0x%llX", i, PawnObject);
+
+        if (!isVaildPtr(PawnObject)) {
+            NSLog(@"[DEBUG] Player[%d] invalid pointer", i);
+            continue;
+        }
 
         bool isLocalTeam = isLocalTeamMate(myPawnObject, PawnObject);
-        if (isLocalTeam) continue;
+        if (isLocalTeam) {
+            NSLog(@"[DEBUG] Player[%d] is teammate, skip", i);
+            continue;
+        }
 
         NSString *Name = GetNickName(PawnObject);
-        if (Name.length == 0) continue;
+        NSLog(@"[DEBUG] Player[%d] name = '%@'", i, Name);
+
+        // DEBUG: Don't skip empty name, just log it
+        if (Name.length == 0) {
+            NSLog(@"[DEBUG] Player[%d] empty name, but still processing", i);
+        }
 
         int CurHP = get_CurHP(PawnObject);
         int MaxHP = get_MaxHP(PawnObject);
+        NSLog(@"[DEBUG] Player[%d] HP = %d/%d", i, CurHP, MaxHP);
 
-        // PATCHED: Head/Toe fields removed. Using guessed offsets from ITransformNode array.
-        // Head: +0x698 (OKOLMFJKGEC - only Transform* in array)
-        // Toe: +0x630 (first ITransformNode - GUESS, may need adjustment)
-        Vector3 HeadLocation     = getPositionExt(getHead(PawnObject));
-        HeadLocation.y           += 0.2f;
+        uint64_t headPtr = getHead(PawnObject);
+        uint64_t toePtr = getRightToeNode(PawnObject);
 
-        Vector3 RightToePos      = getPositionExt(getRightToeNode(PawnObject));
+        if (!isVaildPtr(headPtr) || !isVaildPtr(toePtr)) {
+            NSLog(@"[DEBUG] Player[%d] head/toe invalid, skip", i);
+            continue;
+        }
 
-        Vector3 w2sHeadLocation  = WorldToScreen(HeadLocation, matrix, sWidth, sHeight);
-        Vector3 w2sRightToePos   = WorldToScreen(RightToePos, matrix, sWidth, sHeight);
+        Vector3 HeadLocation = getPositionExt(headPtr);
+        HeadLocation.y += 0.2f;
+
+        Vector3 RightToePos = getPositionExt(toePtr);
+
+        NSLog(@"[DEBUG] Player[%d] Head=(%f,%f,%f) Toe=(%f,%f,%f)", 
+              i, HeadLocation.x, HeadLocation.y, HeadLocation.z,
+              RightToePos.x, RightToePos.y, RightToePos.z);
+
+        Vector3 w2sHeadLocation = WorldToScreen(HeadLocation, matrix, sWidth, sHeight);
+        Vector3 w2sRightToePos = WorldToScreen(RightToePos, matrix, sWidth, sHeight);
+
+        NSLog(@"[DEBUG] Player[%d] W2S Head=(%f,%f) Toe=(%f,%f)",
+              i, w2sHeadLocation.x, w2sHeadLocation.y, w2sRightToePos.x, w2sRightToePos.y);
 
         float dis = Vector3::Distance(myLocation, HeadLocation);
-        if (dis > 220.0f) continue;
+        NSLog(@"[DEBUG] Player[%d] distance = %f", i, dis);
+
+        if (dis > 220.0f) {
+            NSLog(@"[DEBUG] Player[%d] too far, skip", i);
+            continue;
+        }
 
         countObject++;
 
@@ -172,7 +231,8 @@ uint64_t Moudule_Base = -1;
         float boxWidth = boxHeight * 0.5f;
         float x = w2sHeadLocation.x - boxWidth * 0.5f;
         float y = w2sHeadLocation.y;
-        CGRect box = CGRectMake(x, y, boxWidth, boxHeight);
+
+        NSLog(@"[DEBUG] Player[%d] BOX x=%f y=%f w=%f h=%f", i, x, y, boxWidth, boxHeight);
 
         ESPBox espBox;
         espBox.pos.x = x;
@@ -184,7 +244,7 @@ uint64_t Moudule_Base = -1;
         [boxesMutable addObject:val];
     }
 
-    NSLog(@"[Flork] Count: %d", countObject);
+    NSLog(@"[DEBUG] ===== Total boxes: %d =====", countObject);
 
     self.boxes = boxesMutable;
     [self setNeedsDisplay];
