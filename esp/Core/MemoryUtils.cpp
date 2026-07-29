@@ -1,6 +1,5 @@
 #import "MemoryUtils.h"
 #include <cerrno>
-#include <mach/mach_vm.h>
 
 pid_t GetGameProcesspid(char* GameProcessName) {
     size_t length = 0;
@@ -42,15 +41,14 @@ pid_t GetGameProcesspid(char* GameProcessName) {
 }
 
 vm_map_offset_t GetGameModule_Base(char* GameProcessName) {
-    vm_map_offset_t vmoffset = 0;
-    vm_map_size_t vmsize = 0;
+    vm_address_t vmoffset = 0;
+    vm_size_t vmsize = 0;
     uint32_t nesting_depth = 0;
     struct vm_region_submap_info_64 vbr;
     mach_msg_type_number_t vbrcount = 16;
 
     pid_t pid = GetGameProcesspid(GameProcessName);
 
-    // FIX: Nếu không tìm thấy process, thử các tên khác
     if (pid == -1) {
         const char *fallbackNames[] = {
             "freefirethm",
@@ -71,9 +69,9 @@ vm_map_offset_t GetGameModule_Base(char* GameProcessName) {
     kern_return_t kret = task_for_pid(mach_task_self(), pid, &get_task);
 
     if (get_task != MACH_PORT_NULL) {
-        kern_return_t kr = mach_vm_region_recurse_64(get_task, (mach_vm_address_t*)&vmoffset, (mach_vm_size_t*)&vmsize, &nesting_depth, (vm_region_recurse_info_t)&vbr, &vbrcount);
+        kern_return_t kr = vm_region_recurse_64(get_task, &vmoffset, &vmsize, &nesting_depth, (vm_region_recurse_info_t)&vbr, &vbrcount);
         if (kr == KERN_SUCCESS) {
-            return vmoffset;
+            return (vm_map_offset_t)vmoffset;
         }
     }
 
