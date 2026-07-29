@@ -58,7 +58,7 @@ void update_data() {
 
     g_cameraFov = cameraFov;
     g_cameraPos = cameraPos;
-    g_matrix = matrixV;
+    memcpy(g_matrix, matrixV, sizeof(float) * 16);
 
     [g_playerList removeAllObjects];
 
