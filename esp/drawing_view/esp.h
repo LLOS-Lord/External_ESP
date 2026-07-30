@@ -10,6 +10,8 @@ struct ESPBox {
 
 @interface ESP_View : UIView
 
-- (instancetype)init;
+- (instancetype)initWithFrame:(CGRect)frame;
+- (void)setBoxes:(NSArray<NSValue *> *)boxes;
+- (void)updateBoxes;
 - (void)update_data;
 @end

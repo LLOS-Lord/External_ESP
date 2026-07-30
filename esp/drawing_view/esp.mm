@@ -1,5 +1,8 @@
 #import "esp.h"
 #import "../Core/Logger.h"
+#import "../Core/ESPData.h"
+#include "../Core/GameLogic.h"
+#include <cmath>
 
 #define sWidth  [UIScreen mainScreen].bounds.size.width
 #define sHeight [UIScreen mainScreen].bounds.size.height
@@ -13,6 +16,14 @@
 
 uint64_t Moudule_Base = -1;
 
+// Simple distance function
+static inline float distanceVec3(Vector3 a, Vector3 b) {
+    float dx = a.x - b.x;
+    float dy = a.y - b.y;
+    float dz = a.z - b.z;
+    return sqrtf(dx*dx + dy*dy + dz*dz);
+}
+
 @implementation ESP_View
 
 - (instancetype)initWithFrame:(CGRect)frame
@@ -21,11 +32,13 @@ uint64_t Moudule_Base = -1;
     if (self) {
         self.layers = [NSMutableArray array];
         self.backgroundColor = [UIColor clearColor];
+        self.userInteractionEnabled = NO;
+        g_playerList = [NSMutableArray array];
         ESPLog("[ESP] View init");
 
         static dispatch_once_t onceToken;
         dispatch_once(&onceToken, ^{
-            Moudule_Base = (uint64_t)GetGameModule_Base((char*)"freefireth");
+            Moudule_Base = (uint64_t)GetGameModule_Base((char*)"Free Fire");
             ESPLog("[ESP] Module Base = 0x%llX", Moudule_Base);
         });
 
@@ -46,210 +59,179 @@ uint64_t Moudule_Base = -1;
     [self updateBoxes];
 }
 
-- (void)setBoxes:(NSArray<NSValue *> *)boxes
-{
-    _boxesData = [boxes copy];
+- (void)setBoxes:(NSArray<NSValue *> *)boxes {
+    self.boxesData = boxes;
     [self updateBoxes];
 }
 
 - (void)updateBoxes {
-    if (!self.window) return;
-    NSUInteger count = self.boxesData.count;
-
-    if (count == 0)
-    {
-        for (CALayer *layer in self.layers) { [layer removeFromSuperlayer]; }
-        [self.layers removeAllObjects];
-        return;
+    // Xóa layers cũ
+    for (CALayer *layer in self.layers) {
+        [layer removeFromSuperlayer];
     }
+    [self.layers removeAllObjects];
 
-    while (self.layers.count < count)
-    {
-        CALayer *layer = [CALayer layer];
-        layer.borderColor = [UIColor colorWithRed:1 green:0 blue:0 alpha:0.8].CGColor;
-        layer.borderWidth = 2.0;
-        layer.cornerRadius = 3.0;
-        [self.layer addSublayer:layer];
-        [self.layers addObject:layer];
-    }
+    // Vẽ ESP boxes từ g_playerList
+    for (PlayerData *data in g_playerList) {
+        if (data.distance > 500.0f) continue;
 
-    for (NSUInteger i = 0; i < self.layers.count; i++)
-    {
-        CALayer *layer = self.layers[i];
-        if (i < count)
-        {
-            ESPBox box;
-            [self.boxesData[i] getValue:&box];
-            layer.hidden = NO;
-            [CATransaction begin];
-            [CATransaction setDisableActions:YES];
-            layer.frame = CGRectMake(box.pos.x, box.pos.y, box.width, box.height);
-            [CATransaction commit];
-        } else {
-            layer.hidden = YES;
-        }
+        float boxHeight = fabs(data.screenHead.y - data.screenToe.y);
+        float boxWidth = boxHeight * 0.6f;
+        float x = data.screenHead.x - boxWidth / 2;
+        float y = data.screenHead.y;
+
+        UIColor *color = data.isTeammate ? [UIColor greenColor] : [UIColor redColor];
+
+        // Box border
+        CAShapeLayer *boxLayer = [CAShapeLayer layer];
+        boxLayer.frame = CGRectMake(x, y, boxWidth, boxHeight);
+        boxLayer.borderColor = color.CGColor;
+        boxLayer.borderWidth = 2.0f;
+        boxLayer.backgroundColor = [UIColor clearColor].CGColor;
+        [self.layer addSublayer:boxLayer];
+        [self.layers addObject:boxLayer];
+
+        // HP Bar background
+        float barWidth = boxWidth;
+        float barHeight = 4.0f;
+        float barY = y - barHeight - 2;
+
+        CALayer *hpBg = [CALayer layer];
+        hpBg.frame = CGRectMake(x, barY, barWidth, barHeight);
+        hpBg.backgroundColor = [UIColor darkGrayColor].CGColor;
+        [self.layer addSublayer:hpBg];
+        [self.layers addObject:hpBg];
+
+        // HP Bar fill
+        float hpPercent = (float)data.curHP / (float)(data.maxHP > 0 ? data.maxHP : 100);
+        CALayer *hpFill = [CALayer layer];
+        hpFill.frame = CGRectMake(x, barY, barWidth * hpPercent, barHeight);
+        hpFill.backgroundColor = color.CGColor;
+        [self.layer addSublayer:hpFill];
+        [self.layers addObject:hpFill];
+
+        // Name label
+        CATextLayer *nameLayer = [CATextLayer layer];
+        nameLayer.string = [NSString stringWithFormat:@"%@ [%.0fm]", data.nickName, data.distance];
+        nameLayer.fontSize = 10;
+        nameLayer.foregroundColor = [UIColor whiteColor].CGColor;
+        nameLayer.frame = CGRectMake(x, barY - 14, 200, 14);
+        [self.layer addSublayer:nameLayer];
+        [self.layers addObject:nameLayer];
     }
 }
 
-- (void)dealloc {
-    ESPLog("[ESP] View dealloc");
-    [self.displayLink invalidate];
-    [self.displayLinkDATA invalidate];
-    self.displayLink = nil;
-    self.displayLinkDATA = nil;
-    [[NSNotificationCenter defaultCenter] removeObserver:self];
-}
-
-- (void)update_data
-{
+- (void)update_data {
     ESPLog("[ESP] ===== update_data START =====");
 
-    if (Moudule_Base == -1) {
-        ESPLog("[ESP] Module_Base = -1, aborting");
+    uint64_t base = GetGameModule_Base((char*)"Free Fire");
+    if (base == 0) {
+        ESPLog("[ESP] Module Base = 0, aborting");
         return;
     }
+    ESPLog("[ESP] Module Base = 0x%llX", base);
 
-    uint64_t matchGame = getMatchGame(Moudule_Base);
+    uint64_t matchGame = getMatchGame(base);
     if (!isVaildPtr(matchGame)) {
         ESPLog("[ESP] matchGame INVALID, aborting");
         return;
     }
-
-    uint64_t camera = CameraMain(matchGame);
-    if (!isVaildPtr(camera)) {
-        ESPLog("[ESP] Camera INVALID, aborting");
-        return;
-    }
+    ESPLog("[ESP] matchGame = 0x%llX", matchGame);
 
     uint64_t match = getMatch(matchGame);
     if (!isVaildPtr(match)) {
-        ESPLog("[ESP] match INVALID, aborting");
+        ESPLog("[ESP] match INVALID");
+        return;
+    }
+    ESPLog("[ESP] match = 0x%llX", match);
+
+    uint64_t localPlayer = getLocalPlayer(match);
+    if (!isVaildPtr(localPlayer)) {
+        ESPLog("[ESP] localPlayer INVALID");
+        return;
+    }
+    ESPLog("[ESP] localPlayer = 0x%llX", localPlayer);
+
+    uint64_t camera = CameraMain(matchGame);
+    if (!isVaildPtr(camera)) {
+        ESPLog("[ESP] camera INVALID");
+        return;
+    }
+    ESPLog("[ESP] camera = 0x%llX", camera);
+
+    float* matrix = GetViewMatrix(camera);
+    if (!matrix) {
+        ESPLog("[ESP] matrix NULL");
+        return;
+    }
+    ESPLog("[ESP] matrix OK");
+
+    memcpy(g_matrix, matrix, sizeof(float) * 16);
+    g_cameraFov = getCameraFov(camera);
+    g_cameraPos = getCameraPosition(camera);
+
+    ESPLog("[ESP] FOV=%.1f Pos=(%.1f,%.1f,%.1f)", g_cameraFov, g_cameraPos.x, g_cameraPos.y, g_cameraPos.z);
+
+    // Read player list
+    uint64_t players[100];
+    int playerCount = getPlayerList(match, players, 100);
+
+    if (playerCount == 0) {
+        ESPLog("[ESP] No players found");
         return;
     }
 
-    uint64_t myPawnObject = getLocalPlayer(match);
-    if (!isVaildPtr(myPawnObject)) {
-        ESPLog("[ESP] LocalPlayer INVALID, aborting");
-        return;
-    }
+    ESPLog("[ESP] Found %d players", playerCount);
 
-    uint64_t mainCameraTransform = ReadAddr<uint64_t>(myPawnObject + 0x2B0);
-    ESPLog("[ESP] mainCameraTransform = 0x%llX", mainCameraTransform);
+    [g_playerList removeAllObjects];
 
-    Vector3 myLocation = getPositionExt(mainCameraTransform);
-    ESPLog("[ESP] MyLocation = (%.2f, %.2f, %.2f)", myLocation.x, myLocation.y, myLocation.z);
+    for (int i = 0; i < playerCount; i++) {
+        uint64_t player = players[i];
+        if (!isVaildPtr(player)) continue;
+        if (player == localPlayer) continue;
 
-    uint64_t player = ReadAddr<uint64_t>(match + 0x158);
-    ESPLog("[ESP] Player list ptr (+0x158) = 0x%llX", player);
+        uint64_t head = getHeadTransform(player);
+        uint64_t toe = getToeTransform(player);
 
-    if (!isVaildPtr(player)) {
-        ESPLog("[ESP] Player list INVALID, trying old offset +0xC8");
-        player = ReadAddr<uint64_t>(match + 0xC8);
-        ESPLog("[ESP] Fallback Player list = 0x%llX", player);
-        if (!isVaildPtr(player)) {
-            ESPLog("[ESP] Both offsets failed, aborting");
-            return;
-        }
-    }
-
-    uint64_t tValue = ReadAddr<uint64_t>(player + 0x28);
-    ESPLog("[ESP] tValue = 0x%llX", tValue);
-
-    if (!isVaildPtr(tValue)) {
-        ESPLog("[ESP] tValue INVALID, aborting");
-        return;
-    }
-
-    int coutValue = ReadAddr<int>(tValue + 0x18);
-    ESPLog("[ESP] Player count = %d", coutValue);
-
-    if (coutValue <= 0 || coutValue > 100) {
-        ESPLog("[ESP] Player count suspicious (%d), aborting", coutValue);
-        return;
-    }
-
-    float *matrix = GetViewMatrix(camera);
-
-    NSMutableArray<NSValue *> *boxesMutable = [NSMutableArray array];
-    int countObject = 0;
-
-    for (int i = 0; i < coutValue; i++) {
-        uint64_t PawnObject = ReadAddr<uint64_t>(tValue + 0x20 + 8 * i);
-        ESPLog("[ESP] Player[%d] ptr = 0x%llX", i, PawnObject);
-
-        if (!isVaildPtr(PawnObject)) {
-            ESPLog("[ESP] Player[%d] invalid pointer", i);
+        if (!isVaildPtr(head)) {
+            ESPLog("[ESP] Player %d: head INVALID", i);
             continue;
         }
 
-        bool isLocalTeam = isLocalTeamMate(myPawnObject, PawnObject);
-        if (isLocalTeam) {
-            ESPLog("[ESP] Player[%d] is teammate, skip", i);
-            continue;
+        Vector3 headPos = getPositionExt(head);
+        Vector3 toePos = isVaildPtr(toe) ? getPositionExt(toe) : headPos;
+
+        ESPLog("[ESP] Player %d: headPos=(%.1f,%.1f,%.1f)", i, headPos.x, headPos.y, headPos.z);
+
+        Vector3 screenHead = WorldToScreen(headPos, matrix, sWidth, sHeight);
+        Vector3 screenToe = WorldToScreen(toePos, matrix, sWidth, sHeight);
+
+        if (screenHead.x < 0 || screenHead.x > sWidth || screenHead.y < 0 || screenHead.y > sHeight) {
+            if (screenToe.x < 0 || screenToe.x > sWidth || screenToe.y < 0 || screenToe.y > sHeight) {
+                continue;
+            }
         }
 
-        NSString *Name = GetNickName(PawnObject);
-        ESPLog("[ESP] Player[%d] name = '%s'", i, [Name UTF8String]);
+        float dist = distanceVec3(g_cameraPos, headPos);
 
-        int CurHP = get_CurHP(PawnObject);
-        int MaxHP = get_MaxHP(PawnObject);
-        ESPLog("[ESP] Player[%d] HP = %d/%d", i, CurHP, MaxHP);
+        PlayerData *data = [[PlayerData alloc] init];
+        data.screenHead = screenHead;
+        data.screenToe = screenToe;
+        data.boxHeight = fabs(screenHead.y - screenToe.y);
+        data.boxWidth = data.boxHeight * 0.6f;
+        data.curHP = get_CurHP(player);
+        data.maxHP = get_MaxHP(player);
+        data.distance = dist;
+        data.isTeammate = isLocalTeamMate(localPlayer, player);
+        data.nickName = getPlayerName(player);
 
-        uint64_t headPtr = getHeadTransform(PawnObject);
-        uint64_t toePtr = getToeTransform(PawnObject);
+        ESPLog("[ESP] Player %d: HP=%d/%d Team=%d Name=%@ Dist=%.1f",
+               i, data.curHP, data.maxHP, getTeamID(player), data.nickName, dist);
 
-        if (!isVaildPtr(headPtr) || !isVaildPtr(toePtr)) {
-            ESPLog("[ESP] Player[%d] head(0x%llX) or toe(0x%llX) invalid, skip", i, headPtr, toePtr);
-            continue;
-        }
-
-        Vector3 HeadLocation = getPositionExt(headPtr);
-        HeadLocation.y += 0.2f;
-
-        Vector3 RightToePos = getPositionExt(toePtr);
-
-        ESPLog("[ESP] Player[%d] Head=(%.2f,%.2f,%.2f) Toe=(%.2f,%.2f,%.2f)", 
-              i, HeadLocation.x, HeadLocation.y, HeadLocation.z,
-              RightToePos.x, RightToePos.y, RightToePos.z);
-
-        Vector3 w2sHeadLocation = WorldToScreen(HeadLocation, matrix, sWidth, sHeight);
-        Vector3 w2sRightToePos = WorldToScreen(RightToePos, matrix, sWidth, sHeight);
-
-        ESPLog("[ESP] Player[%d] W2S Head=(%.1f,%.1f) Toe=(%.1f,%.1f)",
-              i, w2sHeadLocation.x, w2sHeadLocation.y, w2sRightToePos.x, w2sRightToePos.y);
-
-        float dis = Vector3::Distance(myLocation, HeadLocation);
-        ESPLog("[ESP] Player[%d] distance = %.1f", i, dis);
-
-        if (dis > 220.0f) {
-            ESPLog("[ESP] Player[%d] too far, skip", i);
-            continue;
-        }
-
-        countObject++;
-
-        float boxHeight = abs(w2sHeadLocation.y - w2sRightToePos.y);
-        float boxWidth = boxHeight * 0.5f;
-        float x = w2sHeadLocation.x - boxWidth * 0.5f;
-        float y = w2sHeadLocation.y;
-
-        ESPLog("[ESP] Player[%d] BOX x=%.1f y=%.1f w=%.1f h=%.1f", i, x, y, boxWidth, boxHeight);
-
-        ESPBox espBox;
-        espBox.pos.x = x;
-        espBox.pos.y = y;
-        espBox.width = boxWidth;
-        espBox.height = boxHeight;
-
-        NSValue *val = [NSValue valueWithBytes:&espBox objCType:@encode(ESPBox)];
-        [boxesMutable addObject:val];
+        [g_playerList addObject:data];
     }
 
-    ESPLog("[ESP] ===== Total boxes: %d =====", countObject);
-
-    self.boxes = boxesMutable;
-    [self setNeedsDisplay];
+    ESPLog("[ESP] Rendered %d players", (int)g_playerList.count);
 }
-
 
 @end
