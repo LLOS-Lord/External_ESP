@@ -195,8 +195,8 @@ uint64_t Moudule_Base = -1;
         int MaxHP = get_MaxHP(PawnObject);
         ESPLog("[ESP] Player[%d] HP = %d/%d", i, CurHP, MaxHP);
 
-        uint64_t headPtr = getHead(PawnObject);
-        uint64_t toePtr = getRightToeNode(PawnObject);
+        uint64_t headPtr = getHeadTransform(PawnObject);
+        uint64_t toePtr = getToeTransform(PawnObject);
 
         if (!isVaildPtr(headPtr) || !isVaildPtr(toePtr)) {
             ESPLog("[ESP] Player[%d] head(0x%llX) or toe(0x%llX) invalid, skip", i, headPtr, toePtr);
