@@ -14,7 +14,7 @@
 @property (nonatomic, strong) NSArray<NSValue *> *boxesData;
 @end
 
-uint64_t Module_Base = -1;
+extern uint64_t Module_Base;
 
 // Simple distance function
 static inline float distanceVec3(Vector3 a, Vector3 b) {
