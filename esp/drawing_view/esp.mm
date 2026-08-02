@@ -146,12 +146,12 @@ static inline float distanceVec3(Vector3 a, Vector3 b) {
     ESPLog("[ESP] match = 0x%llX", match);
 
     uint64_t localPlayer = getLocalPlayer(match);
-    if (!isVaildPtr(localPlayer)) {
-        ESPLog("[ESP] localPlayer INVALID");
-        return;
+    if (localPlayer == 0) {
+        ESPLog("[ESP] localPlayer = 0 (not spawned yet), continuing");
+    } else if (!isVaildPtr(localPlayer)) {
+        ESPLog("[ESP] localPlayer INVALID ptr, continuing");
+        localPlayer = 0;
     }
-    ESPLog("[ESP] localPlayer = 0x%llX", localPlayer);
-
     uint64_t camera = CameraMain(matchGame);
     if (!isVaildPtr(camera)) {
         ESPLog("[ESP] camera INVALID");

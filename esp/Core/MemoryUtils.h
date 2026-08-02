@@ -19,7 +19,6 @@
 
 // ============================================================
 // FIX: Forward declare system calls bị block bởi mach_vm.h
-// Các hàm này vẫn tồn tại trong libSystem.dylib trên iOS
 // ============================================================
 #ifdef __cplusplus
 extern "C" {
@@ -46,13 +45,16 @@ kern_return_t vm_read_overwrite(
 }
 #endif
 
-// FIX: vm_map_offset_t không tồn tại trên iOS → dùng uint64_t
 extern uint64_t Module_Base;
 extern task_t get_task;
 
-// FIX: Dùng uint64_t, thêm alignment check và giới hạn user-space iOS (47-bit)
+// FIX: Strict pointer validation - alignment + user-space + non-zero upper bits
 inline bool isVaildPtr(uint64_t addr) {
-    return (addr > 0x100000000ULL && addr < 0x0000080000000000ULL);
+    // Must be 8-byte aligned
+    if ((addr & 0x7) != 0) return false;
+    // iOS user-space: 0x100000000 to 0x000007FFFFFFFFFF (47-bit)
+    // Exclude kernel/sign-extended addresses like 0xAA0E00000002
+    return (addr > 0x100000000ULL && addr < 0x000007F000000000ULL);
 }
 
 pid_t GetGameProcesspid(char* GameProcessName);
