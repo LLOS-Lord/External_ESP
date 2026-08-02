@@ -14,8 +14,9 @@
 @property (nonatomic, strong) NSArray<NSValue *> *boxesData;
 @end
 
-uint64_t Moudule_Base = -1;
+uint64_t Module_Base = -1;
 
+// Simple distance function
 static inline float distanceVec3(Vector3 a, Vector3 b) {
     float dx = a.x - b.x;
     float dy = a.y - b.y;
@@ -37,8 +38,8 @@ static inline float distanceVec3(Vector3 a, Vector3 b) {
 
         static dispatch_once_t onceToken;
         dispatch_once(&onceToken, ^{
-            Moudule_Base = (uint64_t)GetGameModule_Base((char*)"Free Fire");
-            ESPLog("[ESP] Module Base = 0x%llX", Moudule_Base);
+            Module_Base = (uint64_t)GetGameModule_Base((char*)"Free Fire");
+            ESPLog("[ESP] Module Base = 0x%llX", Module_Base);
         });
 
         self.displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(updateBoxes)];
@@ -64,11 +65,13 @@ static inline float distanceVec3(Vector3 a, Vector3 b) {
 }
 
 - (void)updateBoxes {
+    // Xóa layers cũ
     for (CALayer *layer in self.layers) {
         [layer removeFromSuperlayer];
     }
     [self.layers removeAllObjects];
 
+    // Vẽ ESP boxes từ g_playerList
     for (PlayerData *data in g_playerList) {
         if (data.distance > 500.0f) continue;
 
@@ -79,6 +82,7 @@ static inline float distanceVec3(Vector3 a, Vector3 b) {
 
         UIColor *color = data.isTeammate ? [UIColor greenColor] : [UIColor redColor];
 
+        // Box border
         CAShapeLayer *boxLayer = [CAShapeLayer layer];
         boxLayer.frame = CGRectMake(x, y, boxWidth, boxHeight);
         boxLayer.borderColor = color.CGColor;
@@ -87,6 +91,7 @@ static inline float distanceVec3(Vector3 a, Vector3 b) {
         [self.layer addSublayer:boxLayer];
         [self.layers addObject:boxLayer];
 
+        // HP Bar background
         float barWidth = boxWidth;
         float barHeight = 4.0f;
         float barY = y - barHeight - 2;
@@ -97,6 +102,7 @@ static inline float distanceVec3(Vector3 a, Vector3 b) {
         [self.layer addSublayer:hpBg];
         [self.layers addObject:hpBg];
 
+        // HP Bar fill
         float hpPercent = (float)data.curHP / (float)(data.maxHP > 0 ? data.maxHP : 100);
         CALayer *hpFill = [CALayer layer];
         hpFill.frame = CGRectMake(x, barY, barWidth * hpPercent, barHeight);
@@ -104,6 +110,7 @@ static inline float distanceVec3(Vector3 a, Vector3 b) {
         [self.layer addSublayer:hpFill];
         [self.layers addObject:hpFill];
 
+        // Name label
         CATextLayer *nameLayer = [CATextLayer layer];
         nameLayer.string = [NSString stringWithFormat:@"%@ [%.0fm]", data.nickName, data.distance];
         nameLayer.fontSize = 10;
@@ -139,8 +146,11 @@ static inline float distanceVec3(Vector3 a, Vector3 b) {
     ESPLog("[ESP] match = 0x%llX", match);
 
     uint64_t localPlayer = getLocalPlayer(match);
-    // localPlayer == 0 is OK (not spawned yet / spectating)
-    ESPLog("[ESP] localPlayer = 0x%llX (%s)", localPlayer, localPlayer ? "OK" : "NOT SPAWNED");
+    if (!isVaildPtr(localPlayer)) {
+        ESPLog("[ESP] localPlayer INVALID");
+        return;
+    }
+    ESPLog("[ESP] localPlayer = 0x%llX", localPlayer);
 
     uint64_t camera = CameraMain(matchGame);
     if (!isVaildPtr(camera)) {
@@ -162,6 +172,7 @@ static inline float distanceVec3(Vector3 a, Vector3 b) {
 
     ESPLog("[ESP] FOV=%.1f Pos=(%.1f,%.1f,%.1f)", g_cameraFov, g_cameraPos.x, g_cameraPos.y, g_cameraPos.z);
 
+    // Read player list
     uint64_t players[100];
     int playerCount = getPlayerList(match, players, 100);
 
@@ -211,8 +222,7 @@ static inline float distanceVec3(Vector3 a, Vector3 b) {
         data.curHP = get_CurHP(player);
         data.maxHP = get_MaxHP(player);
         data.distance = dist;
-        // Only check teammate if localPlayer is valid
-        data.isTeammate = (localPlayer != 0) ? isLocalTeamMate(localPlayer, player) : false;
+        data.isTeammate = isLocalTeamMate(localPlayer, player);
         data.nickName = getPlayerName(player);
 
         ESPLog("[ESP] Player %d: HP=%d/%d Team=%d Name=%@ Dist=%.1f",

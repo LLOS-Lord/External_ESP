@@ -3,6 +3,7 @@
 #include "Logger.h"
 
 task_t get_task = MACH_PORT_NULL;
+uint64_t Module_Base = 0;
 
 pid_t GetGameProcesspid(char* GameProcessName) {
     size_t length = 0;
@@ -31,7 +32,6 @@ pid_t GetGameProcesspid(char* GameProcessName) {
 
     pid_t bestMatch = -1;
 
-    // Pass 1: Exact or substring match with requested name
     for (int i = 0; i < count; ++i) {
         const char *procname = procBuffer[i].kp_proc.p_comm;
         pid_t Processpid = procBuffer[i].kp_proc.p_pid;
@@ -43,14 +43,12 @@ pid_t GetGameProcesspid(char* GameProcessName) {
         }
     }
 
-    // Pass 2: If not found, scan all and look for Free Fire variants
     if (bestMatch == -1) {
         ESPLog("[PROC] '%s' not found directly. Scanning all processes for Free Fire...", GameProcessName);
         for (int i = 0; i < count; ++i) {
             const char *procname = procBuffer[i].kp_proc.p_comm;
             pid_t Processpid = procBuffer[i].kp_proc.p_pid;
 
-            // Log every process for debugging
             if (strstr(procname, "Free") || strstr(procname, "Fire") || 
                 strstr(procname, "free") || strstr(procname, "fire") ||
                 strstr(procname, "Garena") || strstr(procname, "garena")) {
@@ -68,7 +66,6 @@ pid_t GetGameProcesspid(char* GameProcessName) {
         }
     }
 
-    // Pass 3: Last resort - any process containing "Fire"
     if (bestMatch == -1) {
         for (int i = 0; i < count; ++i) {
             const char *procname = procBuffer[i].kp_proc.p_comm;
@@ -92,12 +89,12 @@ pid_t GetGameProcesspid(char* GameProcessName) {
     return bestMatch;
 }
 
-vm_map_offset_t GetGameModule_Base(char* GameProcessName) {
+uint64_t GetGameModule_Base(char* GameProcessName) {
     vm_address_t vmoffset = 0;
     vm_size_t vmsize = 0;
     uint32_t nesting_depth = 0;
     struct vm_region_submap_info_64 vbr;
-    mach_msg_type_number_t vbrcount = 16;
+    mach_msg_type_number_t vbrcount = VM_REGION_SUBMAP_INFO_COUNT_64;
 
     ESPLog("[PROC] Looking for process: '%s'", GameProcessName);
     pid_t pid = GetGameProcesspid(GameProcessName);
@@ -120,8 +117,8 @@ vm_map_offset_t GetGameModule_Base(char* GameProcessName) {
     if (get_task != MACH_PORT_NULL) {
         kern_return_t kr = vm_region_recurse_64(get_task, &vmoffset, &vmsize, &nesting_depth, (vm_region_recurse_info_t)&vbr, &vbrcount);
         if (kr == KERN_SUCCESS) {
-            ESPLog("[PROC] Module Base = 0x%llX", (vm_map_offset_t)vmoffset);
-            return (vm_map_offset_t)vmoffset;
+            ESPLog("[PROC] Module Base = 0x%llX", (uint64_t)vmoffset);
+            return (uint64_t)vmoffset;
         } else {
             ESPLog("[PROC] vm_region_recurse_64 FAILED: %d", kr);
         }
@@ -130,7 +127,7 @@ vm_map_offset_t GetGameModule_Base(char* GameProcessName) {
     return 0;
 }
 
-bool _read(long addr, void *buffer, int len)
+bool _read(uint64_t addr, void *buffer, int len)
 {
     if (!isVaildPtr(addr)) return false;
     vm_size_t size = 0;
