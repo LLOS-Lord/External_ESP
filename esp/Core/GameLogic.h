@@ -21,3 +21,6 @@ float* GetViewMatrix(uint64_t cameraMain);
 float getCameraFov(uint64_t camera);
 Vector3 getCameraPosition(uint64_t camera);
 Vector3 GetTransformPosition(uint64_t transform);
+
+// NEW: player validation helper
+bool isValidPlayer(uint64_t player);
