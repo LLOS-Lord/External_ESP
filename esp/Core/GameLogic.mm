@@ -29,25 +29,15 @@ bool isValidMatch(uint64_t match) {
     uint64_t entities = 0;
     bool entitiesOk = _read(match + OFFSET_DictionaryEntities, &entities, 8);
 
-    // Nếu bất kỳ read nào fail → không phải Match
     if (!lpOk || !statusOk || !entitiesOk) {
-        ESPLog("[GL] isValidMatch(0x%llX): read FAIL (lp=%s status=%s entities=%s)",
-               match, lpOk?"OK":"FAIL", statusOk?"OK":"FAIL", entitiesOk?"OK":"FAIL");
         return false;
     }
 
-    // Match đang chạy thì status > 0 (thường 1-5)
     bool statusValid = (status > 0 && status <= 10);
-
-    // DictionaryEntities phải là pointer hợp lệ (hoặc 0 nếu chưa có ai)
     bool entitiesValid = (entities == 0) || isVaildPtr(entities);
-
-    // LocalPlayer = 0 là OK (chưa spawn), nhưng nếu != 0 thì phải valid
     bool lpValid = (lp == 0) || isVaildPtr(lp);
 
     bool result = statusValid && entitiesValid && lpValid;
-    ESPLog("[GL] isValidMatch(0x%llX): lp=0x%llX status=%u entities=0x%llX -> %s",
-           match, lp, status, entities, result?"PASS":"FAIL");
     return result;
 }
 
@@ -62,14 +52,13 @@ bool isValidPlayer(uint64_t player) {
 
     uint32_t teamID = 0;
     if (!_read(player + OFFSET_TeamID, &teamID, 4)) return false;
-    // TeamID thường 1-50
     if (teamID == 0 || teamID > 100) return false;
 
     return true;
 }
 
 // ============================================================
-// getMatchGame - Multi-path resolver
+// getMatchGame - Ultra resolver với nhiều offsets và scan
 // ============================================================
 uint64_t getMatchGame(uint64_t base) {
     if (base == 0) return 0;
@@ -82,58 +71,74 @@ uint64_t getMatchGame(uint64_t base) {
     uint64_t result = 0;
 
     // Các offset thử cho static_fields trong Il2CppClass
-    uint32_t staticOffsets[] = {0x5C, 0xB8, 0xC0, 0xD0, 0xE0, 0xF0};
+    uint32_t staticOffsets[] = {0x5C, 0xB8, 0xC0, 0xD0, 0xE0, 0xF0, 0x100, 0x110};
     int nStatic = sizeof(staticOffsets)/sizeof(staticOffsets[0]);
 
-    // ── METHOD 1 ── initAddr = Il2CppClass* → +static_fields → +CurrentMatch
+    // Các offset thử cho CurrentMatch trong static_fields
+    uint32_t currentMatchOffsets[] = {0x40, 0x48, 0x50, 0x58, 0x60, 0x68, 0x70, 0x78, 0x80, 0x88, 0x90};
+    int nCM = sizeof(currentMatchOffsets)/sizeof(currentMatchOffsets[0]);
+
+    // ── METHOD 1 ── initAddr = Il2CppClass* → +static_fields → thử nhiều CurrentMatch offsets
     for (int i = 0; i < nStatic; i++) {
         uint32_t soff = staticOffsets[i];
         uint64_t staticFields = 0;
         if (!_read(initAddr + soff, &staticFields, 8)) continue;
         if (!isVaildPtr(staticFields)) continue;
-        uint64_t match = ReadAddr<uint64_t>(staticFields + OFFSET_CurrentMatch);
-        ESPLog("[GL] M1[static=0x%X] staticFields=0x%llX match=0x%llX", soff, staticFields, match);
-        if (isValidMatch(match)) {
-            ESPLog("[GL] M1[static=0x%X] OK: Match=0x%llX", soff, match);
-            result = match;
-            goto done;
-        }
-    }
+        ESPLog("[GL] M1[static=0x%X] staticFields=0x%llX", soff, staticFields);
 
-    // ── METHOD 2 ── *initAddr = Il2CppClass* → +static_fields → +CurrentMatch
-    if (isVaildPtr(initVal)) {
-        for (int i = 0; i < nStatic; i++) {
-            uint32_t soff = staticOffsets[i];
-            uint64_t staticFields = 0;
-            if (!_read(initVal + soff, &staticFields, 8)) continue;
-            if (!isVaildPtr(staticFields)) continue;
-            uint64_t match = ReadAddr<uint64_t>(staticFields + OFFSET_CurrentMatch);
-            ESPLog("[GL] M2[static=0x%X] staticFields=0x%llX match=0x%llX", soff, staticFields, match);
-            if (isValidMatch(match)) {
-                ESPLog("[GL] M2[static=0x%X] OK: Match=0x%llX", soff, match);
+        for (int j = 0; j < nCM; j++) {
+            uint32_t cmoff = currentMatchOffsets[j];
+            uint64_t match = ReadAddr<uint64_t>(staticFields + cmoff);
+            if (match != 0 && isValidMatch(match)) {
+                ESPLog("[GL] M1[static=0x%X][CM=0x%X] OK: Match=0x%llX", soff, cmoff, match);
                 result = match;
                 goto done;
             }
         }
     }
 
-    // ── METHOD 3 ── *initAddr = GameManager instance → +CurrentMatch
+    // ── METHOD 2 ── *initAddr = Il2CppClass* → +static_fields → thử nhiều CurrentMatch offsets
     if (isVaildPtr(initVal)) {
-        uint64_t match = ReadAddr<uint64_t>(initVal + OFFSET_CurrentMatch);
-        ESPLog("[GL] M3: initVal=0x%llX match=0x%llX", initVal, match);
-        if (isValidMatch(match)) {
-            ESPLog("[GL] M3 OK: Match=0x%llX", match);
-            result = match;
-            goto done;
+        for (int i = 0; i < nStatic; i++) {
+            uint32_t soff = staticOffsets[i];
+            uint64_t staticFields = 0;
+            if (!_read(initVal + soff, &staticFields, 8)) continue;
+            if (!isVaildPtr(staticFields)) continue;
+            ESPLog("[GL] M2[static=0x%X] staticFields=0x%llX", soff, staticFields);
+
+            for (int j = 0; j < nCM; j++) {
+                uint32_t cmoff = currentMatchOffsets[j];
+                uint64_t match = ReadAddr<uint64_t>(staticFields + cmoff);
+                if (match != 0 && isValidMatch(match)) {
+                    ESPLog("[GL] M2[static=0x%X][CM=0x%X] OK: Match=0x%llX", soff, cmoff, match);
+                    result = match;
+                    goto done;
+                }
+            }
         }
     }
 
-    // ── METHOD 4 ── initAddr trực tiếp = GameManager instance → +CurrentMatch
-    {
-        uint64_t match = ReadAddr<uint64_t>(initAddr + OFFSET_CurrentMatch);
-        ESPLog("[GL] M4: match=0x%llX", match);
-        if (isValidMatch(match)) {
-            ESPLog("[GL] M4 OK: Match=0x%llX", match);
+    // ── METHOD 3 ── *initAddr = GameManager instance → thử nhiều CurrentMatch offsets
+    if (isVaildPtr(initVal)) {
+        for (int j = 0; j < nCM; j++) {
+            uint32_t cmoff = currentMatchOffsets[j];
+            uint64_t match = ReadAddr<uint64_t>(initVal + cmoff);
+            ESPLog("[GL] M3[CM=0x%X]: initVal=0x%llX match=0x%llX", cmoff, initVal, match);
+            if (match != 0 && isValidMatch(match)) {
+                ESPLog("[GL] M3[CM=0x%X] OK: Match=0x%llX", cmoff, match);
+                result = match;
+                goto done;
+            }
+        }
+    }
+
+    // ── METHOD 4 ── initAddr trực tiếp = GameManager instance → thử nhiều CurrentMatch offsets
+    for (int j = 0; j < nCM; j++) {
+        uint32_t cmoff = currentMatchOffsets[j];
+        uint64_t match = ReadAddr<uint64_t>(initAddr + cmoff);
+        ESPLog("[GL] M4[CM=0x%X]: match=0x%llX", cmoff, match);
+        if (match != 0 && isValidMatch(match)) {
+            ESPLog("[GL] M4[CM=0x%X] OK: Match=0x%llX", cmoff, match);
             result = match;
             goto done;
         }
@@ -159,20 +164,25 @@ uint64_t getMatchGame(uint64_t base) {
         }
     }
 
-    // ── METHOD 7 ── Brute-force quanh InitBase ±128 bytes
+    // ── METHOD 7 ── Brute-force quanh InitBase ±256 bytes, thử nhiều CM offsets
     ESPLog("[GL] M7: Brute-force around InitBase");
-    for (int off = -128; off <= 128; off += 8) {
+    for (int off = -256; off <= 256; off += 8) {
         uint64_t addr = initAddr + off;
         uint64_t val = 0;
         if (!_read(addr, &val, 8)) continue;
         if (!isVaildPtr(val)) continue;
-        // Thử coi val là GameManager → +CurrentMatch
-        uint64_t match = ReadAddr<uint64_t>(val + OFFSET_CurrentMatch);
-        if (isValidMatch(match)) {
-            ESPLog("[GL] M7[off=%d] OK: Match=0x%llX", off, match);
-            result = match;
-            goto done;
+
+        // Thử coi val là GameManager → nhiều CurrentMatch offsets
+        for (int j = 0; j < nCM; j++) {
+            uint32_t cmoff = currentMatchOffsets[j];
+            uint64_t match = ReadAddr<uint64_t>(val + cmoff);
+            if (match != 0 && isValidMatch(match)) {
+                ESPLog("[GL] M7[off=%d][CM=0x%X] OK: Match=0x%llX", off, cmoff, match);
+                result = match;
+                goto done;
+            }
         }
+
         // Thử coi val là Match trực tiếp
         if (isValidMatch(val)) {
             ESPLog("[GL] M7[off=%d] direct OK: Match=0x%llX", off, val);
@@ -181,16 +191,79 @@ uint64_t getMatchGame(uint64_t base) {
         }
     }
 
-    // ── METHOD 8 ── Fallback offset cũ
+    // ── METHOD 8 ── Scan từ static_fields đã tìm được (0x108D31C38) trong vùng ±512 bytes
+    // Log cho thấy staticFields=0x108D31C38 tồn tại, có thể CurrentMatch ở xa hơn
+    {
+        uint64_t knownStaticFields = 0;
+        for (int i = 0; i < nStatic; i++) {
+            uint32_t soff = staticOffsets[i];
+            uint64_t sf = 0;
+            if (!_read(initAddr + soff, &sf, 8)) continue;
+            if (isVaildPtr(sf)) {
+                knownStaticFields = sf;
+                break;
+            }
+        }
+        if (knownStaticFields != 0) {
+            ESPLog("[GL] M8: Scanning from known staticFields=0x%llX", knownStaticFields);
+            for (int off = -512; off <= 512; off += 8) {
+                uint64_t ptr = 0;
+                if (!_read(knownStaticFields + off, &ptr, 8)) continue;
+                if (!isVaildPtr(ptr)) continue;
+                if (isValidMatch(ptr)) {
+                    ESPLog("[GL] M8[off=%d] OK: Match=0x%llX", off, ptr);
+                    result = ptr;
+                    goto done;
+                }
+            }
+        }
+    }
+
+    // ── METHOD 9 ── Fallback offset cũ
     {
         uint64_t oldAddr = base + 0x9985B70;
         uint64_t oldVal = ReadAddr<uint64_t>(oldAddr);
-        ESPLog("[GL] M8: oldOffset match=0x%llX", oldVal);
+        ESPLog("[GL] M9: oldOffset match=0x%llX", oldVal);
         if (isValidMatch(oldVal)) {
-            ESPLog("[GL] M8 OK: Match=0x%llX", oldVal);
+            ESPLog("[GL] M9 OK: Match=0x%llX", oldVal);
             result = oldVal;
             goto done;
         }
+    }
+
+    // ── METHOD 10 ── Scan heap region đầu tiên tìm Match signature
+    // Chỉ scan 1 region đầu tiên hợp lệ để tránh lag
+    {
+        ESPLog("[GL] M10: Heap scan for Match signature");
+        vm_address_t vmoffset = 0;
+        vm_size_t vmsize = 0;
+        uint32_t nesting_depth = 0;
+        struct vm_region_submap_info_64 vbr;
+        mach_msg_type_number_t vbrcount = VM_REGION_SUBMAP_INFO_COUNT_64;
+
+        kern_return_t kr = vm_region_recurse_64(get_task, &vmoffset, &vmsize, &nesting_depth, (vm_region_recurse_info_t)&vbr, &vbrcount);
+        if (kr == KERN_SUCCESS) {
+            // Scan từng 8 bytes trong region đầu tiên (giới hạn 1MB để tránh lag)
+            vm_size_t scanSize = vmsize > 0x100000 ? 0x100000 : vmsize;
+            uint8_t* buffer = (uint8_t*)malloc(scanSize);
+            if (buffer) {
+                vm_size_t readSize = 0;
+                kern_return_t readKr = vm_read_overwrite(get_task, vmoffset, scanSize, (vm_address_t)buffer, &readSize);
+                if (readKr == KERN_SUCCESS && readSize == scanSize) {
+                    for (vm_size_t i = 0; i < scanSize - 8; i += 8) {
+                        uint64_t candidate = *(uint64_t*)(buffer + i);
+                        if (!isVaildPtr(candidate)) continue;
+                        if (isValidMatch(candidate)) {
+                            ESPLog("[GL] M10[heap+0x%llX] OK: Match=0x%llX", (uint64_t)(vmoffset + i), candidate);
+                            result = candidate;
+                            break;
+                        }
+                    }
+                }
+                free(buffer);
+            }
+        }
+        if (result != 0) goto done;
     }
 
 done:
@@ -201,7 +274,7 @@ done:
 }
 
 // ============================================================
-// getMatch - nếu matchGame đã là Match thì dùng luôn
+// getMatch
 // ============================================================
 uint64_t getMatch(uint64_t matchGame) {
     if (matchGame == 0) return 0;
@@ -209,7 +282,6 @@ uint64_t getMatch(uint64_t matchGame) {
         ESPLog("[GL] getMatch: matchGame is already Match");
         return matchGame;
     }
-    // Nếu là GameManager thì +CurrentMatch
     uint64_t match = ReadAddr<uint64_t>(matchGame + OFFSET_CurrentMatch);
     ESPLog("[GL] getMatch: GameManager+CurrentMatch -> 0x%llX", match);
     if (isValidMatch(match)) return match;
@@ -227,7 +299,7 @@ uint64_t getLocalPlayer(uint64_t match) {
 }
 
 // ============================================================
-// getPlayerList - Dictionary (thử entries/keys/values) + List fallback
+// getPlayerList - Dictionary + List fallback
 // ============================================================
 int getPlayerList(uint64_t match, uint64_t* outPlayers, int maxCount) {
     if (!isVaildPtr(match) || outPlayers == nullptr || maxCount <= 0) return 0;
@@ -238,23 +310,17 @@ int getPlayerList(uint64_t match, uint64_t* outPlayers, int maxCount) {
 
     int count = 0;
 
-    // ── Pattern A: Dictionary<ulong, Player> ──
-    // entries (List<DictionaryEntry>) tại +0x20
-    // hoặc +0x28 tùy version
+    // Pattern A: Dictionary<ulong, Player>
     uint64_t entries = 0;
-    uint64_t keys = 0;
-    uint64_t values = 0;
     int32_t dictCount = 0;
 
-    // Thử đọc entries tại các offset phổ biến
-    uint32_t dictOffsets[] = {0x20, 0x28, 0x30, 0x18};
-    for (int di = 0; di < 4; di++) {
+    uint32_t dictOffsets[] = {0x20, 0x28, 0x30, 0x18, 0x38};
+    for (int di = 0; di < 5; di++) {
         uint32_t doff = dictOffsets[di];
         uint64_t tmpEntries = 0;
         if (!_read(dict + doff, &tmpEntries, 8)) continue;
         if (!isVaildPtr(tmpEntries)) continue;
 
-        // Thử đọc count tại entries+0x18 (List._size)
         int32_t tmpCount = 0;
         if (!_read(tmpEntries + 0x18, &tmpCount, 4)) continue;
         if (tmpCount >= 0 && tmpCount <= 100) {
@@ -266,7 +332,6 @@ int getPlayerList(uint64_t match, uint64_t* outPlayers, int maxCount) {
     }
 
     if (entries != 0 && dictCount > 0) {
-        // List items array tại +0x20
         uint64_t items = 0;
         if (_read(entries + 0x20, &items, 8) && isVaildPtr(items)) {
             ESPLog("[GL] Dict items array = 0x%llX", items);
@@ -275,12 +340,10 @@ int getPlayerList(uint64_t match, uint64_t* outPlayers, int maxCount) {
                 if (!_read(items + (i * 8), &entry, 8)) continue;
                 if (!isVaildPtr(entry)) continue;
 
-                // Thử key tại +0x0, value tại +0x8
                 uint64_t key = 0, value = 0;
                 _read(entry + 0x0, &key, 8);
                 _read(entry + 0x8, &value, 8);
 
-                // Thử ngược: key tại +0x8, value tại +0x0
                 uint64_t player = 0;
                 if (isValidPlayer(value)) {
                     player = value;
@@ -296,10 +359,10 @@ int getPlayerList(uint64_t match, uint64_t* outPlayers, int maxCount) {
         }
     }
 
-    // ── Pattern B: List<Player> trực tiếp ──
+    // Pattern B: List<Player> trực tiếp
     if (count == 0) {
         ESPLog("[GL] Trying List<Player> pattern");
-        uint64_t listObj = dict; // DictionaryEntities có thể là List trực tiếp
+        uint64_t listObj = dict;
         int32_t listSize = 0;
         if (_read(listObj + 0x18, &listSize, 4) && listSize > 0 && listSize <= 100) {
             uint64_t items = 0;
@@ -322,12 +385,11 @@ int getPlayerList(uint64_t match, uint64_t* outPlayers, int maxCount) {
 }
 
 // ============================================================
-// CameraMain - Multi-path
+// CameraMain
 // ============================================================
 uint64_t CameraMain(uint64_t matchGame) {
     if (matchGame == 0) return 0;
 
-    // Path A: matchGame là Match → +FollowCamera
     if (isValidMatch(matchGame)) {
         uint64_t cam = ReadAddr<uint64_t>(matchGame + OFFSET_FollowCamera);
         ESPLog("[GL] CameraA (Match+FollowCamera) = 0x%llX", cam);
@@ -337,7 +399,6 @@ uint64_t CameraMain(uint64_t matchGame) {
         }
     }
 
-    // Path B: matchGame là GameManager → +FollowCamera
     uint64_t cam = ReadAddr<uint64_t>(matchGame + OFFSET_FollowCamera);
     ESPLog("[GL] CameraB (GameManager+FollowCamera) = 0x%llX", cam);
     if (isVaildPtr(cam)) {
@@ -345,18 +406,11 @@ uint64_t CameraMain(uint64_t matchGame) {
         if (isVaildPtr(camObj)) return camObj;
     }
 
-    // Fallback cũ
-    uint64_t camMgr = ReadAddr<uint64_t>(matchGame + OFFSET_FollowCamera);
-    if (isVaildPtr(camMgr)) {
-        uint64_t camObj = ReadAddr<uint64_t>(camMgr + OFFSET_Camera);
-        if (isVaildPtr(camObj)) return camObj;
-    }
-
     return 0;
 }
 
 // ============================================================
-// Transform helpers (giữ nguyên)
+// Transform helpers
 // ============================================================
 uint64_t getHeadTransform(uint64_t player) {
     if (!isVaildPtr(player)) return 0;
@@ -401,18 +455,18 @@ int get_CurHP(uint64_t player) {
     if (!isVaildPtr(player)) return 0;
     uint64_t attr = ReadAddr<uint64_t>(player + OFFSET_PlayerAttributes);
     if (!isVaildPtr(attr)) return 0;
-    return ReadAddr<int>(attr + 0x28); // offset HP trong PlayerAttributes
+    return ReadAddr<int>(attr + 0x28);
 }
 
 int get_MaxHP(uint64_t player) {
     if (!isVaildPtr(player)) return 0;
     uint64_t attr = ReadAddr<uint64_t>(player + OFFSET_PlayerAttributes);
     if (!isVaildPtr(attr)) return 0;
-    return ReadAddr<int>(attr + 0x2C); // offset MaxHP
+    return ReadAddr<int>(attr + 0x2C);
 }
 
 // ============================================================
-// Camera helpers (giữ nguyên)
+// Camera helpers
 // ============================================================
 float* GetViewMatrix(uint64_t cameraMain) {
     static float matrix[16];
@@ -425,7 +479,7 @@ float* GetViewMatrix(uint64_t cameraMain) {
 
 float getCameraFov(uint64_t camera) {
     if (!isVaildPtr(camera)) return 60.0f;
-    return ReadAddr<float>(camera + 0x40); // FOV offset thường
+    return ReadAddr<float>(camera + 0x40);
 }
 
 Vector3 getCameraPosition(uint64_t camera) {
