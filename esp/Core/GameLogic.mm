@@ -286,9 +286,9 @@ std::vector<PlayerInfo> getPlayerList() {
     if (match == 0) return list;
 
     uint64_t localPlayer = getLocalPlayer(match);
-    int localTeam = 0;
+    // int localTeam = 0;
     if (localPlayer != 0) {
-        localTeam = getPlayerTeamID(localPlayer);
+        // localTeam = getPlayerTeamID(localPlayer);
     }
 
     // Try legacy dictionary approach first
