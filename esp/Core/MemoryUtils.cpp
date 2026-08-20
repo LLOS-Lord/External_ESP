@@ -91,7 +91,7 @@ pid_t GetGameProcesspid(char* GameProcessName) {
     return bestMatch;
 }
 
-uint64_t GetGameModule_Base(char* GameProcessName) {
+uint64_t GetGameModule_Base(const char* GameProcessName) {
     vm_address_t vmoffset = 0;
     vm_size_t vmsize = 0;
     uint32_t nesting_depth = 0;
