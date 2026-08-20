@@ -388,7 +388,7 @@ std::vector<PlayerInfo> getPlayerList() {
 // WORLD TO SCREEN
 // ==========================================
 
-Vector3 WorldToScreen(Vector3 pos, float* matrix, float width, float height) {
+Vector3 WorldToScreenGL(Vector3 pos, float* matrix, float width, float height) {
     Vector3 out = {0, 0, 0};
     if (!matrix) return out;
 
@@ -414,7 +414,7 @@ bool worldToScreen(Vector3 pos, float* outX, float* outY, int screenW, int scree
     float* matrix = GetViewMatrix(0);
     if (!matrix) return false;
 
-    Vector3 screen = WorldToScreen(pos, matrix, (float)screenW, (float)screenH);
+    Vector3 screen = WorldToScreenGL(pos, matrix, (float)screenW, (float)screenH);
     if (screen.z < 0.01f) return false;
 
     *outX = screen.x;

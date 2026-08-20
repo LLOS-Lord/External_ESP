@@ -79,7 +79,7 @@ uint32_t getPlayerTeamID(uint64_t player);
 bool isValidPlayer(uint64_t player);
 
 // World-to-screen projection
-Vector3 WorldToScreen(Vector3 pos, float* matrix, float width, float height);
+Vector3 WorldToScreenGL(Vector3 pos, float* matrix, float width, float height);
 bool worldToScreen(Vector3 pos, float* outX, float* outY, int screenW, int screenH, uint64_t match);
 
 // Lifecycle
