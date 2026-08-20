@@ -7,7 +7,7 @@
 task_t get_task = MACH_PORT_NULL;
 uint64_t Module_Base = 0;
 
-pid_t GetGameProcesspid(char* GameProcessName) {
+pid_t GetGameProcesspid(const char* GameProcessName) {
     size_t length = 0;
     static const int name[] = {CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0};
     int err = sysctl((int *)name, (sizeof(name) / sizeof(*name)) - 1, NULL, &length, NULL, 0);
