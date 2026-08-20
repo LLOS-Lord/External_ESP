@@ -149,8 +149,8 @@ void update_data() {
 
         // World-to-screen for head and toe
         if (matrix) {
-            Vector3 screenHead = WorldToScreen(p.head, matrix, screenW, screenH);
-            Vector3 screenToe  = WorldToScreen(p.toe, matrix, screenW, screenH);
+            Vector3 screenHead = WorldToScreenGL(p.head, matrix, screenW, screenH);
+            Vector3 screenToe  = WorldToScreenGL(p.toe, matrix, screenW, screenH);
             data.screenHead = screenHead;
             data.screenToe  = screenToe;
 
